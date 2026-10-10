@@ -1,0 +1,95 @@
+{
+  "title": "Collected Notes",
+  "graph": "Demo Graph",
+  "created": "2026-10-09T00:00:00Z",
+  "warnings": [],
+  "options": {
+    "expandRefs": true,
+    "expandPages": true,
+    "properties": true,
+    "margins": [0.35, 0.35, 0.35, 0.35],
+    "darken": 25,
+    "accent": "#79b998",
+    "paper": "LETTER"
+  },
+  "nodes": [
+    {
+      "uuid": "demo-page",
+      "kind": "page",
+      "text": "Collected Notes",
+      "collapsed": false,
+      "properties": {},
+      "children": [
+        {
+          "uuid": "demo-embed",
+          "kind": "block",
+          "text": "Workshop planning",
+          "embedded": true,
+          "collapsed": false,
+          "properties": {},
+          "children": [
+            {
+              "uuid": "demo-heading",
+              "kind": "block",
+              "text": "Community workshop",
+              "collapsed": false,
+              "properties": {},
+              "children": [
+                {
+                  "uuid": "demo-intro",
+                  "kind": "block",
+                  "text": "Collect the activities in a single page so everyone can review the plan:",
+                  "collapsed": false,
+                  "properties": {},
+                  "children": [
+                    {
+                      "uuid": "demo-table",
+                      "kind": "block",
+                      "text": "| Activity | Preparation |\n| --- | --- |\n| Welcome | Arrange the seats |\n| Demonstration | Prepare a sample project |\n| Practice | Put tools on each table |\n| Discussion | Collect questions from participants |",
+                      "collapsed": false,
+                      "properties": {},
+                      "children": []
+                    },
+                    {
+                      "uuid": "demo-summary",
+                      "kind": "block",
+                      "text": "**Next step:** confirm the schedule with the volunteers.",
+                      "collapsed": false,
+                      "properties": {},
+                      "children": []
+                    },
+                    {
+                      "uuid": "demo-checklist",
+                      "kind": "block",
+                      "text": "Supplies",
+                      "collapsed": false,
+                      "properties": {},
+                      "children": [
+                        {
+                          "uuid": "demo-paper",
+                          "kind": "block",
+                          "text": "Paper and pencils",
+                          "collapsed": false,
+                          "properties": {},
+                          "children": []
+                        },
+                        {
+                          "uuid": "demo-tools",
+                          "kind": "block",
+                          "text": "Shared tools",
+                          "collapsed": false,
+                          "properties": {},
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "name": "logseq-complete-export",
+  "version": "0.1.4",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "author": "bgrimes-git",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgrimes-git/logseq-complete-export.git"
+  },
+  "description": "Export Logseq DB pages, branches, references and embeds",
+  "main": "dist/index.html",
+  "logseq": {
+    "id": "complete-export",
+    "title": "Complete Export",
+    "main": "dist/index.html",
+    "supportsDB": true,
+    "supportsDBOnly": true
+  },
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "package": "node scripts/package.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "pretest:browser": "npm run build",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@logseq/libs": "0.3.4",
+    "docx": "^9.5.1",
+    "dompurify": "^3.4.16",
+    "html-to-pdfmake": "^2.5.31",
+    "lucide": "^1.52.0",
+    "markdown-it": "^14.1.0",
+    "pdfmake": "^0.3.11",
+    "scittle": "^0.8.33"
+  },
+  "devDependencies": {
+    "@electron/asar": "^4.3.1",
+    "@playwright/test": "^1.63.0",
+    "@types/jsdom": "^30.0.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.5.2",
+    "fflate": "^0.8.3",
+    "jsdom": "^29.1.1",
+    "pdfjs-dist": "^6.4.299",
+    "prettier": "^3.9.9",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7"
+  },
+  "overrides": {
+    "dompurify": "$dompurify",
+    "lodash-es": "^4.17.24"
+  }
+}

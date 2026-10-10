@@ -1,0 +1,10 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+qa-results/
+releases/
+marketplace-master/
+tests/strategy.fixture.json
+scripts/review-strategy.mjs
+.publish-work/

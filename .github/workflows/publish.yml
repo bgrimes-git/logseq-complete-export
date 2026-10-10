@@ -1,0 +1,40 @@
+name: Build and publish
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - name: Verify release version
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node -e 'if (process.env.RELEASE_TAG !== "v" + require("./package.json").version) process.exit(1)'
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: releases/*.zip
+      - name: Attach installable ZIP
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" releases/*.zip --clobber
