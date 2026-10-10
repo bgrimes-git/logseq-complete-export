@@ -1,6 +1,30 @@
 # Complete Export for Logseq DB
 
-Targets Logseq DB Desktop 2.0.1. Exports a block, branch, current or named page, or the visible graph to DOCX, PDF, interactive HTML, Markdown, and structured JSON. Nested block/page references and page/block embeds resolve recursively, including collapsed children. Circular and missing references produce visible notices and a companion report.
+Export Logseq DB content to **Word (DOCX), PDF, interactive HTML, Markdown, or JSON**. Targets Logseq DB Desktop 2.0.1.
+
+## What You Can Export
+
+| Source | Included content |
+| --- | --- |
+| Block | The selected block, including embedded content within it |
+| Branch | The selected block and its children, including collapsed children |
+| Page | The current page or a page selected by name |
+| Collected page | A page containing embedded branches/pages, block or page references, and supported query results |
+| Entire graph | Visible pages, classes, and journals; a content export, not a database backup |
+
+Linked-reference and unlinked-reference panels are not included. References, embeds, and queries within the selected content are included according to the export options.
+
+## How to Use
+
+1. **Block or branch:** right-click a block's bullet and choose **Complete Export: block** or **Complete Export: branch**.
+2. **Page:** open the page menu and choose **Complete Export: page**. You can also click the toolbar's download icon or run **Complete Export: export content** from the command palette.
+3. Choose the **Source** and **Format**. For another page, select **Named page** and enter its name. For a graph export, select **Entire graph**.
+4. Adjust content options, paper size, margins, and accent colors as needed.
+5. Click **Preview** to review the resolved content, then **Export** to download the selected format. DOCX and PDF paginate according to the selected paper size.
+
+Nested block/page references and page/block embeds resolve recursively, including collapsed children. Circular and missing references produce visible notices and a companion report.
+
+## Query Support
 
 DB query definitions are read directly from `:logseq.property/query` nodes, which can be omitted by the regular block API. Simple queries run through Logseq's DSL API. Advanced queries run through its Datascript API with inputs, custom rules, and the built-in rule definitions from 2.0.1. A bundled SCI ClojureScript interpreter applies common result transforms and custom Hiccup views. Query execution failures stop the export instead of silently omitting sections. Exports are snapshots; queries do not remain live outside Logseq.
 
@@ -37,6 +61,4 @@ The plugin is AGPL-3.0-only because it includes Logseq's 2.0.1 query rules. See 
 
 ## Preview
 
-![Complete Export with a synthetic collection preview](docs/complete-export.png)
-
-The demonstration uses synthetic notes, not a user's graph. It shows the plugin interface and export preview in a simulated Logseq host; it is not a screenshot of a running Logseq desktop window.
+![Complete Export interface and export preview](docs/complete-export.png)
