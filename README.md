@@ -28,16 +28,11 @@ Nested block/page references and page/block embeds resolve recursively, includin
 
 DB query definitions are read directly from `:logseq.property/query` nodes, which can be omitted by the regular block API. Simple queries run through Logseq's DSL API. Advanced queries run through its Datascript API with inputs, custom rules, and the built-in rule definitions from 2.0.1. A bundled SCI ClojureScript interpreter applies common result transforms and custom Hiccup views. Query execution failures stop the export instead of silently omitting sections. Exports are snapshots; queries do not remain live outside Logseq.
 
-## Install
-
-1. Download the ZIP attached to the [latest release](https://github.com/bgrimes-git/logseq-complete-export/releases/latest) and extract it into a dedicated folder. For a source checkout, run `npm ci` and `npm run build` instead.
-2. Enable developer mode in Logseq DB's settings.
-3. In Plugins, choose **Load unpacked plugin** and select this folder (not `dist` or `marketplace-master`).
-4. Use **Complete Export** in the command palette, toolbar, page menu, or block context menu.
+## Features
 
 Settings persist across sessions. Default document margins are 0.35 inches on each side. Main text is black and background is white, independent of the theme. Accent colors can be selected and darkened. Explicit inline text colors are retained, except a sampled theme-default color when host DOM access is available; source background and layout styles are removed.
 
-## Format behavior
+## Format Behavior
 
 | Format | Preserved behavior |
 | --- | --- |
@@ -50,6 +45,28 @@ Settings persist across sessions. Default document margins are 0.35 inches on ea
 Logseq links open the source graph when the application is installed. HTML and DOCX links point within the exported content when the destination is present. Graph export includes pages/classes/journals returned by the SDK, excluding hidden/property pages; it is a content export rather than a database backup.
 
 Only the selected content is collected, including embeds and query sections within it. The separate linked-reference and unlinked-reference panels are not exported. Image sizing uses the visible host image width or saved resize metadata when available; otherwise DB image thumbnails default to at most 250 pixels. DOCX and PDF paginate normally when expanded content exceeds the selected paper size.
+
+## Install
+
+### Logseq Marketplace
+
+1. In Logseq DB Desktop, open **Plugins** from the main menu.
+2. Select **Marketplace** and search for **Complete Export**.
+3. Click **Install** on the plugin's listing.
+
+Marketplace installation handles downloading and installing the plugin; there is no need to extract a ZIP or load an unpacked folder.
+
+**Availability:** the [marketplace submission](https://github.com/logseq/marketplace/pull/927) is awaiting approval. These steps apply once the plugin is listed. Until then, use the manual option below.
+
+### Manual Installation (Before Listing or for Testing)
+
+1. Download the plugin ZIP attached to the [latest release](https://github.com/bgrimes-git/logseq-complete-export/releases/latest), not GitHub's source-code archive, and extract it into a dedicated folder.
+2. Enable developer mode in Logseq DB's settings.
+3. Open **Plugins**, choose **Load unpacked plugin**, and select the extracted folder containing `package.json`.
+
+### Build From Source (Developers)
+
+Run `npm ci` and `npm run build` in a source checkout, then load the checkout folder using **Load unpacked plugin**. Do not select the `dist` subfolder.
 
 ## Current limits
 
