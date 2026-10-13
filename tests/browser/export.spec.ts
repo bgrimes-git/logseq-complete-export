@@ -795,4 +795,40 @@ for (const width of [660, 390])
       path: `test-results/panel-${width}.png`,
       fullPage: true,
     });
+    const headerTop = await page
+      .locator(".panel > header")
+      .evaluate((el) => el.getBoundingClientRect().top);
+    await page.locator(".panel-content").evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    const position = await page.evaluate(() => {
+      const header = document
+        .querySelector(".panel > header")!
+        .getBoundingClientRect();
+      const close = document.getElementById("close")!.getBoundingClientRect();
+      const scroller = document.querySelector(".panel-content")!;
+      return {
+        top: header.top,
+        bottom: header.bottom,
+        closeTop: close.top,
+        closeBottom: close.bottom,
+        scroll: scroller.scrollTop,
+        viewportHeight: innerHeight,
+      };
+    });
+    expect(position.scroll).toBeGreaterThan(0);
+    expect(position.top).toBe(headerTop);
+    expect(position.closeTop).toBeGreaterThanOrEqual(position.top);
+    expect(position.closeBottom).toBeLessThanOrEqual(position.bottom);
+    expect(position.bottom).toBeLessThan(position.viewportHeight);
+    await page.screenshot({
+      path: `test-results/panel-scrolled-${width}.png`,
+      fullPage: true,
+    });
+    await page.evaluate(() => {
+      (window as any).closeCalls = 0;
+      (window as any).logseq.hideMainUI = () => (window as any).closeCalls++;
+    });
+    await page.locator("#close").click();
+    expect(await page.evaluate(() => (window as any).closeCalls)).toBe(1);
   });

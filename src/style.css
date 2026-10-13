@@ -17,17 +17,25 @@ body {
   border: 1px solid #b9bec4;
   border-radius: 8px;
   height: 92vh;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 12px 40px #0003;
-  padding: 20px;
 }
-header {
+.panel > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #ddd;
-  padding-bottom: 12px;
-  margin-bottom: 16px;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 20px 20px 12px;
+}
+.panel-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 20px;
 }
 h1 {
   font-size: 20px;
@@ -127,6 +135,7 @@ button:disabled {
   cursor: wait;
 }
 .icon {
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   padding: 5px;
@@ -153,7 +162,8 @@ iframe {
   display: none !important;
 }
 @media (max-width: 440px) {
-  .panel {
+  .panel > header,
+  .panel-content {
     padding: 12px;
   }
   .margins {
