@@ -34,6 +34,8 @@ Settings persist across sessions. Default document margins are 0.35 inches on ea
 
 ## Format Behavior
 
+Logseq's native Heading 1-6 properties are preserved for text, page links and embedded labels, independently of the Include properties setting. DOCX uses native Word heading styles, HTML/PDF use matching heading levels and sizes, and Markdown includes heading markers. The document's page title remains separate from Heading 1.
+
 Outline indentation continues through embedded branches instead of flattening deeper levels. Exceptionally deep outlines use a smaller uniform indentation step to fit the page. Table columns reserve space for header words and padding before sharing remaining space according to content. Explicit header line breaks are respected, and short ID/status columns stay more compact than long-text columns. These proportions are calculated for export rather than copying exact pixel widths from Logseq.
 
 Pinned containers (`#+BEGIN_PINNED` / `#+END_PINNED`) render with a pin icon and separator in preview, DOCX, PDF and HTML; Markdown uses a pin symbol. Table cells may contain `<br>` and balanced multiline `<p>` elements. Theme-defined `<mark>` backgrounds are sampled alongside span colors and retained as text highlights in preview, DOCX, PDF and HTML. JSON keeps the resolved source text rather than converting its markup.

@@ -8,6 +8,7 @@ export interface Node {
   properties: Record<string, unknown>;
   kind: "block" | "page" | "notice";
   embedded?: boolean;
+  heading?: number | true;
 }
 export interface DocumentData {
   title: string;
@@ -57,6 +58,23 @@ export const defaults: Options = {
 };
 export const textOf = (b: any): string =>
   String(b.title ?? b.content ?? b.originalName ?? b.name ?? "");
+function headingOf(block: any, properties: any): number | true | undefined {
+  const value =
+    block["heading-level"] ??
+    block["block/heading-level"] ??
+    block[":block/heading-level"] ??
+    properties?.[":logseq.property/heading"] ??
+    properties?.["logseq.property/heading"] ??
+    properties?.heading ??
+    block["logseq.property/heading"] ??
+    block[":logseq.property/heading"];
+  if (value === true) return true;
+  const level =
+    typeof value === "string" && /^[1-6]$/.test(value) ? Number(value) : value;
+  return Number.isInteger(level) && level >= 1 && level <= 6
+    ? level
+    : undefined;
+}
 export function pageIdentity(value: any): string | number {
   const identity =
     typeof value === "object" && value !== null
@@ -234,6 +252,10 @@ export class Resolver {
       );
     const next = new Set(path).add(key);
     let text = textOf(b);
+    const properties = this.api.getBlockProperties
+      ? ((await this.api.getBlockProperties(b.uuid)) ?? b.properties)
+      : b.properties;
+    const heading = headingOf(b, properties);
     const rawLinked = await this.api.getLinkedTarget?.(b.id ?? key);
     if (rawLinked) {
       const target = await this.fetch(rawLinked);
@@ -261,6 +283,7 @@ export class Resolver {
           : node),
         uuid: key,
         embedded: true,
+        ...(heading !== undefined ? { heading } : {}),
         collapsed: !!(b["collapsed?"] ?? b.collapsed),
       };
     }
@@ -418,9 +441,6 @@ export class Resolver {
         }
       }
     }
-    const properties = this.api.getBlockProperties
-      ? await this.api.getBlockProperties(b.uuid)
-      : b.properties;
     const assetType =
       properties?.[":logseq.property.asset/type"] ??
       b["logseq.property.asset/type"];
@@ -452,6 +472,7 @@ export class Resolver {
       collapsed: !!(b["collapsed?"] ?? b.collapsed),
       properties: await this.normalizeProperties(properties),
       kind: "block",
+      ...(heading !== undefined ? { heading } : {}),
     };
   }
   graph = "";

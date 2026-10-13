@@ -182,6 +182,30 @@ function isCycle(node: Node): boolean {
     /^Circular (page|block) reference:/.test(node.text)
   );
 }
+function headingLevel(node: Node, depth: number): number | undefined {
+  return node.heading === true ? Math.min(depth + 1, 6) : node.heading;
+}
+function headingHtml(
+  text: string,
+  node: Node,
+  depth: number,
+  options: Options,
+  apply = true,
+): string {
+  const html = inline(text, options);
+  const level = apply ? headingLevel(node, depth) : undefined;
+  if (!level) return html;
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  const first = root.firstElementChild;
+  if (first && /^(P|H[1-6])$/.test(first.tagName)) {
+    const heading = document.createElement(`h${level}`);
+    heading.dataset.headingLevel = String(level);
+    heading.innerHTML = first.innerHTML;
+    first.replaceWith(heading);
+  }
+  return root.innerHTML;
+}
 function propertyHtml(node: Node, options: Options) {
   if (!options.properties || !Object.keys(node.properties).length) return "";
   const entries = visibleProperties(node);
@@ -208,28 +232,38 @@ export function body(
       const parts = node.ordered.map((part, i) =>
         typeof part === "number"
           ? `<div class="children">${render(node.children[part], level + 1)}</div>`
-          : inline(
+          : headingHtml(
               part +
                 (i === 0 ? textWithTags(node).slice(node.text.length) : ""),
+              node,
+              level,
               options,
+              i === 0,
             ),
       );
       if (interactive)
         return `<details${id}${node.collapsed ? "" : " open"}><summary>${parts[0] || escape(node.text)}</summary>${parts.slice(1).join("")}${propertyHtml(node, options)}</details>`;
       return `<div class="block"${id} data-outline-level="${Math.min(level + 1, 8)}">${parts.join("")}${propertyHtml(node, options)}</div>`;
     }
-    const title = inline(textWithTags(node), options),
+    const title = headingHtml(textWithTags(node), node, level, options),
       props = propertyHtml(node, options);
-    const kids = node.children.map((n) => render(n, level + 1)).join("");
-    if (node.embedded)
-      return `<div class="embedded"${id}><p class="embed-title">&#8594; ${escape(textWithTags(node))}</p><div class="children">${kids}</div></div>`;
+    const kids = node.children
+      .map((n) =>
+        render(n, node.kind === "page" && !node.embedded ? level : level + 1),
+      )
+      .join("");
+    if (node.embedded) {
+      const heading = headingLevel(node, level);
+      const tag = heading ? `h${heading}` : "p";
+      return `<div class="embedded"${id}><${tag} class="embed-title"${heading ? ` data-heading-level="${heading}"` : ""}>&#8594; ${escape(textWithTags(node))}</${tag}><div class="children">${kids}</div></div>`;
+    }
     if (node.kind === "page")
       return `<section${id}>${level === 0 && data.nodes.length === 1 && node.text === data.title ? "" : `<h2>${escape(node.text)}</h2>`}${textWithTags(node) !== node.text ? `<p>${escape(textWithTags({ ...node, text: "" }))}</p>` : ""}${props}${kids}</section>`;
     if (interactive && node.children.length)
       return `<details${id}${node.collapsed ? "" : " open"}><summary>${title}</summary>${props}<div class="children">${kids}</div></details>`;
     return `<div class="block${/<table[ >]/.test(title) ? " table-block" : ""}${node.kind === "notice" ? " notice" : ""}"${id}${node.children.length ? ` data-outline-level="${Math.min(level + 1, 8)}"` : ""}>${title ? `<div class="block-title">${title}</div>` : '<p class="empty-block">&nbsp;</p>'}${props}${kids ? `<div class="children">${kids}</div>` : ""}</div>`;
   }
-  let result = `<h1>${escape(data.title)}</h1>${data.nodes.map((n) => render(n, 0)).join("")}`;
+  let result = `<h1 data-document-title="true">${escape(data.title)}</h1>${data.nodes.map((n) => render(n, 0)).join("")}`;
   const root = document.createElement("div");
   root.innerHTML = result;
   const width =
@@ -256,7 +290,7 @@ export function htmlDocument(data: DocumentData, options: Options): string {
   @page{size:${options.paper === "LETTER" ? "letter" : "A4"};margin:${top}in ${right}in ${bottom}in ${left}in}
   *{box-sizing:border-box}html,body{background:#fff;color:#000;font:11pt/1.5 Arial,sans-serif;letter-spacing:0}body{margin:0;padding:${top}in ${right}in ${bottom}in ${left}in}h1{font-size:22pt}h2{font-size:16pt}p{margin:0 0 6pt}section{margin-top:14pt}.block,details{margin:5pt 0;overflow-wrap:anywhere}.children{padding-left:12pt;border-left:1px solid #ddd}summary{cursor:pointer}summary p{display:inline}img{max-width:100%;height:auto}pre{white-space:pre-wrap;background:#f3f4f5;padding:8pt}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #bbb;padding:4pt}dl{font-size:9pt;display:grid;grid-template-columns:max-content 1fr;gap:2pt 8pt}dd{margin:0}.notice{color:#8a230d}a{color:${darken(options.accent, options.darken)}}@media print{body{padding:0}details:not([open])>.children{display:block}summary{list-style:none}a{color:inherit}}
   h1{margin:0 0 20pt}section{margin-top:0}h2{margin:10pt 0}p{margin:0}dl:empty{display:none}.children{border:0;padding-left:15pt}.block,details{margin:4pt 0}.block-title{position:relative;padding-left:10pt}.block-title:before{content:'\u2022';position:absolute;left:0;color:#777}summary{list-style:none;position:relative;padding-left:10pt}summary:before{content:'\u2022';position:absolute;left:0;color:#777}summary::marker{content:''}summary::-webkit-details-marker{display:none}details:not([open])>summary:before{content:'\u25b8'}.embed-title{margin:0 0 6pt}.embedded{margin:6pt 0}table{width:100%;table-layout:auto}th,td{padding:5pt;text-align:left;vertical-align:middle;overflow-wrap:break-word}th{background:#f2f2f2}img{display:block;max-width:100%;height:auto}.empty-block{height:12pt}
-  h1{margin-bottom:30pt}.table-block{margin:10pt 0}figure{margin:0}figcaption{font-size:9pt;color:#555;margin-top:3pt}th{text-align:center}.block:last-child>.empty-block{display:none}.pinned-icon{display:inline-block;width:12pt;height:12pt;vertical-align:middle}th:first-child,td:first-child{width:auto}th{overflow-wrap:normal;word-break:normal}
+  h1{margin-bottom:30pt}.table-block{margin:10pt 0}figure{margin:0}figcaption{font-size:9pt;color:#555;margin-top:3pt}th{text-align:center}.block:last-child>.empty-block{display:none}.pinned-icon{display:inline-block;width:12pt;height:12pt;vertical-align:middle}th:first-child,td:first-child{width:auto}th{overflow-wrap:normal;word-break:normal}h1[data-heading-level]{font-size:20pt;margin:6pt 0}h2[data-heading-level]{font-size:18pt;margin:6pt 0}h3[data-heading-level]{font-size:16pt;margin:6pt 0}h4[data-heading-level]{font-size:14pt;margin:6pt 0}h5[data-heading-level]{font-size:12pt;margin:6pt 0}h6[data-heading-level]{font-size:11pt;margin:6pt 0}summary h1,summary h2,summary h3,summary h4,summary h5,summary h6{display:inline}
   </style></head><body>${body(data, options)}<script>document.addEventListener('click',function(e){const a=e.target.closest('a[href^="#b-"]');if(!a)return;const n=document.getElementById(a.hash.slice(1));if(n){let p=n;while(p){if(p.tagName==='DETAILS')p.open=true;p=p.parentElement;}n.scrollIntoView();}});</script></body></html>`;
 }
 export function markdown(data: DocumentData, options: Options): string {
@@ -278,6 +312,9 @@ export function markdown(data: DocumentData, options: Options): string {
   function render(n: Node, depth: number): string {
     if (isCycle(n)) return "";
     const indent = "  ".repeat(depth);
+    const marker = headingLevel(n, depth)
+      ? "#".repeat(headingLevel(n, depth)!) + " "
+      : "";
     const props = options.properties
       ? visibleProperties(n)
           .map(
@@ -292,15 +329,15 @@ export function markdown(data: DocumentData, options: Options): string {
           .map((part, i) =>
             typeof part === "number"
               ? render(n.children[part], depth + 1)
-              : `${indent}${i === 0 ? "- " : "  "}${source(part + (i === 0 ? textWithTags(n).slice(n.text.length) : "")).replace(/\n/g, `\n${indent}  `)}\n`,
+              : `${indent}${i === 0 ? "- " + marker : "  "}${source(part + (i === 0 ? textWithTags(n).slice(n.text.length) : "")).replace(/\n/g, `\n${indent}  `)}\n`,
           )
           .join("") + props
       );
     if (n.embedded)
-      return `${indent}- \u2192 ${textWithTags(n)}\n\n${n.children.map((c) => render(c, depth + 1)).join("")}`;
+      return `${indent}- ${marker}\u2192 ${textWithTags(n)}\n\n${n.children.map((c) => render(c, depth + 1)).join("")}`;
     if (n.kind === "page")
       return `${depth === 0 && data.nodes.length === 1 && n.text === data.title ? "" : `\n## ${n.text}\n\n`}${textWithTags(n) !== n.text ? `${textWithTags({ ...n, text: "" })}\n\n` : ""}${props}${n.children.map((c) => render(c, depth)).join("")}`;
-    return `${indent}- ${source(textWithTags(n)).replace(/\n/g, `\n${indent}  `)}\n\n${props}${n.children.map((c) => render(c, depth + 1)).join("")}`;
+    return `${indent}- ${marker}${source(textWithTags(n)).replace(/\n/g, `\n${indent}  `)}\n\n${props}${n.children.map((c) => render(c, depth + 1)).join("")}`;
   }
   return `# ${data.title}\n\n${data.nodes.map((n) => render(n, 0)).join("")}`;
 }

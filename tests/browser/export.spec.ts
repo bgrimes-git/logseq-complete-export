@@ -871,6 +871,109 @@ for (const paper of ["LETTER", "A4"] as const) {
   });
 }
 
+test("DB heading levels survive plain text, page links and embedded labels", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    const oldPage = ls.Editor.getPage;
+    ls.Editor.getPage = async (id: any) =>
+      id === "A sample page"
+        ? {
+            uuid: "sample-page",
+            name: "A sample page",
+            title: "A sample page",
+            type: "page",
+          }
+        : oldPage(id);
+    ls.Editor.getPageBlocksTree = async () => [
+      ...Array.from({ length: 6 }, (_, i) => ({
+        uuid: `heading-${i + 1}`,
+        title: `Heading ${i + 1}`,
+        children: [],
+      })),
+      { id: 50, uuid: "heading-embed", title: "", children: [] },
+      { uuid: "heading-link", title: "[[A sample page]]", children: [] },
+    ];
+    ls.Editor.getBlock = async () => ({
+      uuid: "heading-target",
+      title: "Embedded notes",
+      children: [{ uuid: "heading-child", title: "Nested note", children: [] }],
+    });
+    ls.Editor.getBlockProperties = async (id: string) => ({
+      ":logseq.property/heading":
+        id === "heading-embed"
+          ? 3
+          : id === "heading-link"
+            ? 2
+            : /^heading-[1-6]$/.test(id)
+              ? Number(id.slice(-1))
+              : undefined,
+    });
+    const oldQuery = ls.DB.datascriptQuery;
+    ls.DB.datascriptQuery = async (q: string) =>
+      q.includes(":find ?b ?target") ? [[50, 60]] : oldQuery(q);
+  });
+  await page.locator("#props").uncheck();
+  await page.locator("#preview").click();
+  const frame = page.frameLocator("#previewFrame");
+  for (let i = 1; i <= 6; i++)
+    await expect(frame.locator(`#b-heading-${i} h${i}`)).toHaveText(
+      `Heading ${i}`,
+    );
+  await expect(
+    frame.locator("#b-heading-embed > h3.embed-title"),
+  ).toContainText("Embedded notes");
+  await expect(frame.locator("#b-heading-link h2")).toContainText(
+    "A sample page",
+  );
+  await mkdir("qa-results/headings", { recursive: true });
+  for (const format of ["docx", "pdf", "html", "markdown"]) {
+    await page.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await file.saveAs(
+      `qa-results/headings/Headings.${format === "markdown" ? "md" : format}`,
+    );
+    const bytes = await readFile((await file.path())!);
+    if (format === "docx") {
+      const xml = strFromU8(unzipSync(bytes)["word/document.xml"]);
+      for (let i = 1; i <= 6; i++) {
+        const paragraph = xml
+          .match(/<w:p[ >][\s\S]*?<\/w:p>/g)!
+          .find((p) => p.includes(`Heading ${i}`))!;
+        expect(paragraph).toContain(`w:val="Heading${i}"`);
+        expect(paragraph.match(/<w:pStyle /g)).toHaveLength(1);
+        expect(paragraph).toContain(
+          `w:sz w:val="${[40, 36, 32, 28, 24, 22][i - 1]}"`,
+        );
+      }
+    }
+    if (format === "markdown") {
+      for (let i = 1; i <= 6; i++)
+        expect(bytes.toString()).toContain(`- ${"#".repeat(i)} Heading ${i}`);
+      expect(bytes.toString()).toContain("- ### \u2192 Embedded notes");
+    }
+    if (format === "pdf") {
+      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const loading = getDocument({ data: new Uint8Array(bytes) });
+      const pdf = await loading.promise;
+      const text = await (await pdf.getPage(1)).getTextContent();
+      for (let i = 1; i <= 6; i++) {
+        const item: any = text.items.find((t: any) => t.str === `Heading ${i}`);
+        expect(item.transform[0]).toBe([20, 18, 16, 14, 12, 11][i - 1]);
+      }
+      const embedded: any = text.items.find(
+        (t: any) => t.str === "Embedded notes",
+      );
+      expect(embedded.transform[0]).toBe(16);
+      await loading.destroy();
+    }
+    await expect(page.locator("#status")).toHaveText("Export created.");
+  }
+});
+
 test("rich synthetic exports are readable and safely packaged in all five formats", async ({
   page,
 }) => {

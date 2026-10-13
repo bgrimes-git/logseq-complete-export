@@ -90,7 +90,7 @@ async function readDbChildren(
     if (depth > 80)
       throw new Error("The DB branch exceeds the 80-level export limit.");
     const rows = await ls.DB.datascriptQuery(
-      "[:find (pull ?b [:db/id :block/uuid :block/title :block/order :block/collapsed? {:block/parent [:db/id]} {:block/link [:db/id :block/uuid]}]) :in $ [?parent ...] :where [?b :block/parent ?parent]]",
+      "[:find (pull ?b [:db/id :block/uuid :block/title :block/order :block/collapsed? :logseq.property/heading :block/heading-level {:block/parent [:db/id]} {:block/link [:db/id :block/uuid]}]) :in $ [?parent ...] :where [?b :block/parent ?parent]]",
       `[${pending.join(" ")}]`,
     );
     pending = [];

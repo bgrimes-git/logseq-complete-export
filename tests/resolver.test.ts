@@ -24,6 +24,27 @@ function api(blocks: Record<string, any>, pages: Record<string, any> = {}) {
     },
   };
 }
+test("hidden DB heading properties survive text and embed resolution", async () => {
+  const provider = {
+    ...api({
+      target: { uuid: "target", title: "Embedded notes", children: [] },
+    }),
+    getBlockProperties: async (id: string) => ({
+      ":logseq.property/heading": id === "wrapper" ? 3 : 2,
+    }),
+    getLinkedTarget: async (id: string | number) =>
+      id === "wrapper" ? "target" : undefined,
+  };
+  const resolver = new Resolver(provider, { ...defaults, properties: false });
+  assert.equal(
+    (await resolver.block({ uuid: "text", title: "Text heading" })).heading,
+    2,
+  );
+  const embedded = await resolver.block({ uuid: "wrapper", title: "" });
+  assert.equal(embedded.heading, 3);
+  assert.equal(embedded.embedded, true);
+  assert.equal(embedded.text, "Embedded notes");
+});
 test("DB title wins over deprecated content; UUID tuple children include collapsed content", async () => {
   const r = new Resolver(
     api({ child: { uuid: "child", title: "Child", children: [] } }),

@@ -309,18 +309,36 @@ function docxContent(
       const isBullet =
         (root.classList.contains("block-title") || bullet || tag === "LI") &&
         tag !== "FIGCAPTION";
-      const children = runs(
-        el,
-        tag === "FIGCAPTION" ? { size: 18, color: "555555" } : {},
-      );
-      const heading =
-        tag === "H1"
-          ? HeadingLevel.TITLE
-          : tag === "H2"
-            ? HeadingLevel.HEADING_1
-            : /^H[3-6]$/.test(tag)
-              ? HeadingLevel.HEADING_2
-              : undefined;
+      const documentTitle = el.dataset.documentTitle === "true";
+      const level =
+        /^H[1-6]$/.test(tag) && !documentTitle
+          ? Number(tag.slice(1))
+          : undefined;
+      const heading = documentTitle
+        ? HeadingLevel.TITLE
+        : level
+          ? [
+              HeadingLevel.HEADING_1,
+              HeadingLevel.HEADING_2,
+              HeadingLevel.HEADING_3,
+              HeadingLevel.HEADING_4,
+              HeadingLevel.HEADING_5,
+              HeadingLevel.HEADING_6,
+            ][level - 1]
+          : undefined;
+      const children = [
+        ...(isBullet && level
+          ? [new TextRun({ text: "\u2022 ", size: 22 })]
+          : []),
+        ...runs(
+          el,
+          level
+            ? { bold: true, size: [20, 18, 16, 14, 12, 11][level - 1] * 2 }
+            : tag === "FIGCAPTION"
+              ? { size: 18, color: "555555" }
+              : {},
+        ),
+      ];
       const outlineLevel =
         el === root.firstElementChild && root.dataset.outlineLevel
           ? Number(root.dataset.outlineLevel)
@@ -329,21 +347,27 @@ function docxContent(
         new Paragraph({
           children: bookmarked(el, children),
           heading,
-          outlineLevel,
+          outlineLevel: level ? level - 1 : outlineLevel,
           indent: isBullet
             ? { left: indent + 180, hanging: 180 }
             : { left: indent + (tag === "FIGCAPTION" ? 180 : 0) },
           spacing: {
-            before: tag === "H1" ? 0 : afterTable ? 200 : 0,
-            after: tag === "H1" ? 600 : beforeTable ? 200 : 80,
+            before: documentTitle ? 0 : afterTable ? 200 : level ? 120 : 0,
+            after: documentTitle ? 600 : beforeTable ? 200 : level ? 120 : 80,
             ...(el.querySelector("img") || tag === "IMG"
               ? {}
               : {
-                  line: tag === "H1" ? 660 : tag === "FIGCAPTION" ? 240 : 330,
+                  line: documentTitle
+                    ? 660
+                    : level
+                      ? Math.max(330, [20, 18, 16, 14, 12, 11][level - 1] * 24)
+                      : tag === "FIGCAPTION"
+                        ? 240
+                        : 330,
                   lineRule: LineRuleType.EXACT,
                 }),
           },
-          ...(isBullet ? { bullet: { level: 0 } } : {}),
+          ...(isBullet && !level ? { bullet: { level: 0 } } : {}),
         }),
       );
     }
@@ -525,8 +549,12 @@ export async function exportFile(
             paragraph: { spacing: { after: 80 } },
           },
           title: { run: { color: "000000", size: 44 } },
-          heading1: { run: { color: "000000", size: 32 } },
-          heading2: { run: { color: "000000", size: 28 } },
+          heading1: { run: { color: "000000", size: 40, bold: true } },
+          heading2: { run: { color: "000000", size: 36, bold: true } },
+          heading3: { run: { color: "000000", size: 32, bold: true } },
+          heading4: { run: { color: "000000", size: 28, bold: true } },
+          heading5: { run: { color: "000000", size: 24, bold: true } },
+          heading6: { run: { color: "000000", size: 22, bold: true } },
         },
       },
       background: { color: "FFFFFF" },
@@ -590,12 +618,47 @@ export async function exportFile(
         defaultStyles: {
           div: { margin: [0, 0, 0, 0] },
           p: { margin: [0, 0, 0, 0] },
-          h1: { fontSize: 22, margin: [0, 0, 0, 0], marginBottom: "" },
-          h2: { fontSize: 16, margin: [0, 0, 0, 0], marginBottom: "" },
+          h1: {
+            fontSize: 20,
+            bold: true,
+            margin: [0, 0, 0, 0],
+            marginBottom: "",
+          },
+          h2: {
+            fontSize: 18,
+            bold: true,
+            margin: [0, 0, 0, 0],
+            marginBottom: "",
+          },
+          h3: {
+            fontSize: 16,
+            bold: true,
+            margin: [0, 0, 0, 0],
+            marginBottom: "",
+          },
+          h4: {
+            fontSize: 14,
+            bold: true,
+            margin: [0, 0, 0, 0],
+            marginBottom: "",
+          },
+          h5: {
+            fontSize: 12,
+            bold: true,
+            margin: [0, 0, 0, 0],
+            marginBottom: "",
+          },
+          h6: {
+            fontSize: 11,
+            bold: true,
+            margin: [0, 0, 0, 0],
+            marginBottom: "",
+          },
           ul: { marginLeft: 0, marginBottom: 0 },
           table: { marginBottom: 0 },
         },
         customTag: ({ element, ret }: any) => {
+          if (element.dataset?.documentTitle === "true") ret.fontSize = 22;
           if (element.tagName === "MARK" && element.style.backgroundColor) {
             // PDFMake flattens nested inline arrays; put the fill on their text runs too.
             const fill = (node: any) => {
@@ -659,6 +722,14 @@ export async function exportFile(
                 },
               ],
               margin: [0, 0, 0, 0],
+              ...(/^H[1-6]$/.test(element.tagName)
+                ? {
+                    fontSize: [20, 18, 16, 14, 12, 11][
+                      Number(element.tagName.slice(1)) - 1
+                    ],
+                    bold: true,
+                  }
+                : {}),
             };
           }
           return ret;
@@ -681,7 +752,7 @@ export async function exportFile(
         if (el.classList.contains("empty-block") && !root.nextElementSibling)
           continue;
         const table = el.tagName === "TABLE";
-        const title = el.tagName === "H1";
+        const title = el.dataset.documentTitle === "true";
         const caption = el.tagName === "FIGCAPTION";
         const image = el.tagName === "IMG";
         const html =
@@ -743,7 +814,7 @@ export async function exportFile(
       pageMargins: [left * 72, top * 72, right * 72, bottom * 72],
       defaultStyle: { fontSize: 11, lineHeight: 1.28, color: "#000000" },
       content: pdfContent(content),
-      styles: { "html-h1": { fontSize: 22 }, "html-h2": { fontSize: 16 } },
+      styles: {},
     };
     const blob = await pdfMake.createPdf(definition).getBlob();
     await validatePdf(blob);
