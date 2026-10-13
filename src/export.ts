@@ -87,6 +87,12 @@ function runs(node: globalThis.Node, marks: any = {}): Inline[] {
     if (canvas.fillStyle.startsWith("#"))
       style.color = canvas.fillStyle.slice(1);
   }
+  if (tag === "MARK" && node.style.backgroundColor) {
+    const canvas = document.createElement("canvas").getContext("2d")!;
+    canvas.fillStyle = node.style.backgroundColor;
+    if (canvas.fillStyle.startsWith("#"))
+      style.shading = { fill: canvas.fillStyle.slice(1) };
+  }
   if (tag === "BR") return [new TextRun({ break: 1 })];
   if (tag === "IMG") {
     const src = (node as HTMLImageElement).src;
@@ -585,6 +591,31 @@ export async function exportFile(
           table: { marginBottom: 0 },
         },
         customTag: ({ element, ret }: any) => {
+          if (element.tagName === "MARK" && element.style.backgroundColor) {
+            // PDFMake flattens nested inline arrays; put the fill on their text runs too.
+            const fill = (node: any) => {
+              if (!node || typeof node !== "object") return;
+              node.background ??= element.style.backgroundColor;
+              if (Array.isArray(node.text)) node.text.forEach(fill);
+            };
+            fill(ret);
+          }
+          if (element.classList?.contains("pinned-lead")) {
+            const image = element.querySelector("img.pinned-icon");
+            if (image) {
+              const copy = element.cloneNode(true);
+              copy.querySelector("img.pinned-icon").remove();
+              copy.classList.remove("pinned-lead");
+              return {
+                columns: [
+                  { image: image.src, width: 12 },
+                  { width: "*", stack: convert(copy.outerHTML) },
+                ],
+                columnGap: 3,
+                margin: [0, 0, 0, 0],
+              };
+            }
+          }
           if (element.classList?.contains("embed-title")) {
             return {
               columns: [

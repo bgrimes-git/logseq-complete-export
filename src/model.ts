@@ -26,6 +26,7 @@ export interface Options {
   defaultColor?: string;
   colorVars?: Record<string, string>;
   classColors?: Record<string, string>;
+  classHighlights?: Record<string, string>;
   paper: "LETTER" | "A4";
 }
 export interface Api {

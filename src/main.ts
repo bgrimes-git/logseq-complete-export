@@ -248,15 +248,20 @@ async function run(preview: boolean) {
     data = await collect();
     const variables = new Set<string>();
     const classes = new Set<string>();
+    const marks = new Set<string>();
     function collectColors(nodes: DocumentData["nodes"]) {
       for (const node of nodes) {
         const parsed = new DOMParser().parseFromString(node.text, "text/html");
         for (const element of parsed.querySelectorAll("span[class]"))
           classes.add(element.className.trim());
+        for (const element of parsed.querySelectorAll("mark"))
+          marks.add(element.className.trim());
         for (const element of parsed.querySelectorAll<HTMLElement>("[style]")) {
-          for (const match of element.style.color.matchAll(
-            /var\(\s*(--[\w-]+)/g,
-          ))
+          for (const match of (
+            element.style.color +
+            " " +
+            element.style.backgroundColor
+          ).matchAll(/var\(\s*(--[\w-]+)/g))
             variables.add(match[1]);
         }
         collectColors(node.children);
@@ -264,18 +269,25 @@ async function run(preview: boolean) {
     }
     collectColors(data.nodes);
     options.classColors = {};
+    options.classHighlights = {};
     try {
-      options.classColors = await readClassColors([...classes]);
+      const styles = await readClassColors([...classes], [...marks]);
+      options.classColors = styles.colors;
+      options.classHighlights = styles.highlights;
       integrationDetails.push(
         `Class colors: ${Object.keys(options.classColors).length} resolved / ${classes.size} requested`,
       );
+      if (marks.size)
+        integrationDetails.push(
+          `Highlight backgrounds: ${Object.keys(options.classHighlights).length} resolved / ${marks.size} requested`,
+        );
     } catch (error) {
       const code =
         error instanceof Error && /^COLOR_[A-Z_]+$/.test(error.message)
           ? error.message
           : "COLOR_HELPER_UNAVAILABLE";
       integrationDetails.push(`Class colors: ${code}`);
-      if (classes.size)
+      if (classes.size || marks.size)
         data.warnings.push(
           `Theme-defined span colors could not be read from Logseq (${code}).`,
         );

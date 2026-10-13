@@ -492,18 +492,28 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
       "--ls-primary-text-color": "rgb(180, 140, 100)",
     });
     const style = document.createElement("style");
-    style.textContent = ".grey { color: rgb(128, 128, 128); }";
+    style.textContent =
+      ".grey { color: rgb(128, 128, 128); } mark.orange { background-color: rgb(255, 180, 90); color: inherit; }";
     document.head.append(style);
     ls.Editor.getPageBlocksTree = async () => [
       {
         uuid: "colors",
         title:
           '<span id="red" style="color:red">Red text</span> <span id="alpha" style="color:rgba(255,0,0,.5)">Alpha text</span> <span id="theme" style="color:rgb(180,140,100)">Explicit theme text</span> <span id="variable" style="color:var(--demo-accent)">Variable text</span> <span id="class-color" class="grey">Class-colored text</span> <mark>Marked text</mark>',
-        children: [],
+        children: [
+          {
+            uuid: "highlight",
+            title: "<mark class='orange'>Highlighted **bold** text</mark>",
+            children: [],
+          },
+        ],
       },
     ];
   });
   await page.locator("#preview").click();
+  await expect(
+    page.frameLocator("#previewFrame").locator("mark.orange"),
+  ).toHaveCSS("background-color", "rgb(255, 180, 90)");
   await expect(page.frameLocator("#previewFrame").locator("#red")).toHaveCSS(
     "color",
     "rgb(191, 0, 0)",
@@ -534,11 +544,70 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
       expect(strFromU8(entries["word/document.xml"])).toContain(
         'w:val="606060"',
       );
+      expect(strFromU8(entries["word/document.xml"])).toContain(
+        'w:fill="ffb45a"',
+      );
+    }
+    if (format === "pdf") {
+      const { getDocument, OPS } =
+        await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const loading = getDocument({
+        data: new Uint8Array(await readFile((await file.path())!)),
+      });
+      const pdf = await loading.promise;
+      const ops = await (await pdf.getPage(1)).getOperatorList();
+      const fills = ops.argsArray
+        .filter((_, i) => ops.fnArray[i] === OPS.setFillRGBColor)
+        .flat();
+      expect(fills).toContain("#ffff00");
+      expect(fills).toContain("#ffb45a");
+      await loading.destroy();
     }
     if (format === "html")
       expect(await readFile((await file.path())!, "utf8")).toContain(
         "rgb(96, 96, 96)",
       );
+    await expect(page.locator("#status")).toHaveText("Export created.");
+  }
+});
+
+test("pinned blocks and paragraph table cells remain formatted", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    (window as any).logseq.Editor.getPageBlocksTree = async () => [
+      {
+        uuid: "pinned",
+        title: "#+BEGIN_PINNED\nKeep **this note**\n#+END_PINNED",
+        children: [],
+      },
+      {
+        uuid: "paragraph-table",
+        title:
+          "| Control | Detail |\n| --- | --- |\n| A | <p>First\nparagraph</p><p>Second<br>line</p> |\n| B | Last |",
+        children: [],
+      },
+    ];
+  });
+  await page.locator("#preview").click();
+  const preview = page.frameLocator("#previewFrame");
+  await expect(preview.locator(".pinned-icon")).toHaveCount(1);
+  await expect(preview.locator("table tbody tr")).toHaveCount(2);
+  await expect(preview.locator("body")).not.toContainText("BEGIN_PINNED");
+  for (const format of ["docx", "pdf", "html"]) {
+    await page.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await mkdir("qa-results/pinned", { recursive: true });
+    await file.saveAs(`qa-results/pinned/Pinned.${format}`);
+    if (format === "docx") {
+      const entries = unzipSync(await readFile((await file.path())!));
+      const xml = strFromU8(entries["word/document.xml"]);
+      expect(xml).toContain("<w:tbl>");
+      expect(xml).toContain("<w:drawing>");
+      expect(xml).not.toContain("BEGIN_PINNED");
+    }
     await expect(page.locator("#status")).toHaveText("Export created.");
   }
 });

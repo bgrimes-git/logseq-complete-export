@@ -1,9 +1,13 @@
 let loading: Promise<unknown> | undefined;
 export async function readClassColors(
   classes: string[],
-): Promise<Record<string, string>> {
+  marks: string[] = [],
+): Promise<{
+  colors: Record<string, string>;
+  highlights: Record<string, string>;
+}> {
   try {
-    return await readOnce(classes);
+    return await readOnce(classes, marks);
   } catch (error) {
     if (
       !(error instanceof Error) ||
@@ -13,12 +17,18 @@ export async function readClassColors(
     )
       throw error;
     loading = undefined;
-    return readOnce(classes);
+    return readOnce(classes, marks);
   }
 }
 
-async function readOnce(classes: string[]): Promise<Record<string, string>> {
-  if (!classes.length) return {};
+async function readOnce(
+  classes: string[],
+  marks: string[],
+): Promise<{
+  colors: Record<string, string>;
+  highlights: Record<string, string>;
+}> {
+  if (!classes.length && !marks.length) return { colors: {}, highlights: {} };
   const sdk = logseq as typeof logseq & {
     _execCallableAPIAsync(method: string, ...args: unknown[]): Promise<unknown>;
   };
@@ -29,7 +39,7 @@ async function readOnce(classes: string[]): Promise<Record<string, string>> {
     ._execCallableAPIAsync(
       "exper_load_scripts",
       logseq.baseInfo.id,
-      logseq.resolveResourceFullUrl("dist/export-colors.js"),
+      logseq.resolveResourceFullUrl("dist/export-colors.js") + "?styles=v2",
     )
     .catch(() => {
       loading = undefined;
@@ -47,7 +57,7 @@ async function readOnce(classes: string[]): Promise<Record<string, string>> {
     function receive(event: MessageEvent) {
       if (
         event.source !== host ||
-        event.data?.type !== "complete-export:colors" ||
+        event.data?.type !== "complete-export:styles-v2" ||
         event.data.id !== id ||
         !event.data.colors ||
         typeof event.data.colors !== "object"
@@ -56,14 +66,23 @@ async function readOnce(classes: string[]): Promise<Record<string, string>> {
       clearTimeout(timer);
       window.removeEventListener("message", receive);
       const colors: Record<string, string> = {};
-      for (const name of classes) {
+      for (const name of [...classes, ...marks.map((name) => `mark:${name}`)]) {
         const color = event.data.colors?.[name];
         if (typeof color === "string" && /^rgba?\([\d.,\s]+\)$/.test(color))
           colors[name] = color;
       }
-      resolve(colors);
+      const highlights: Record<string, string> = {};
+      for (const name of marks) {
+        const color = event.data.highlights?.[name];
+        if (typeof color === "string" && /^rgba?\([\d.,\s]+\)$/.test(color))
+          highlights[name] = color;
+      }
+      resolve({ colors, highlights });
     }
     window.addEventListener("message", receive);
-    host.postMessage({ type: "complete-export:colors", id, classes }, "*");
+    host.postMessage(
+      { type: "complete-export:styles-v2", id, classes, marks },
+      "*",
+    );
   });
 }

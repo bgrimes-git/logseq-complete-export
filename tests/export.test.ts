@@ -20,7 +20,41 @@ dom.window.HTMLCanvasElement.prototype.getContext = function () {
   } as any;
 };
 const { exportFile, filename } = await import("../src/export");
-const { htmlDocument, inline } = await import("../src/render");
+const { htmlDocument, inline, markdown } = await import("../src/render");
+test("pinned containers preserve literal delimiters inside code", () => {
+  const html = inline(
+    "#+BEGIN_PINNED\nNote\n\n```text\n#+END_PINNED\n```\n#+END_PINNED",
+    defaults,
+  );
+  assert.match(html, /class="pinned"/);
+  assert.match(html, /<code class="language-text">#\+END_PINNED/);
+  assert.equal((html.match(/class="pinned-icon"/g) || []).length, 1);
+  assert.doesNotMatch(
+    inline("```text\n#+BEGIN_PINNED\nExample\n#+END_PINNED\n```", defaults),
+    /class="pinned"/,
+  );
+  const data: DocumentData = {
+    title: "Pinned note",
+    graph: "Demo",
+    created: "2026-10-13",
+    warnings: [],
+    nodes: [
+      {
+        uuid: "pin",
+        kind: "block",
+        text: "#+BEGIN_PINNED\nExample **note**\n#+END_PINNED",
+        collapsed: false,
+        properties: {},
+        children: [],
+      },
+    ],
+  };
+  assert.match(
+    markdown(data, defaults),
+    /\uD83D\uDCCC \| Example \*\*note\*\*/,
+  );
+  assert.doesNotMatch(markdown(data, defaults), /BEGIN_PINNED|END_PINNED/);
+});
 test("Synthetic collection has an embed heading, readable table and no system metadata", async () => {
   await mkdir(new URL("../test-results/", import.meta.url), {
     recursive: true,

@@ -1,5 +1,7 @@
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
+import { createElement, Pin } from "lucide";
+import { tableSource } from "./table-source";
 import {
   darken,
   escape,
@@ -9,10 +11,90 @@ import {
   type Options,
 } from "./model";
 const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
+function pinImage() {
+  const svg = createElement(Pin, { width: 16, height: 16, stroke: "#444444" });
+  svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  return `<img class="pinned-icon" alt="Pinned" width="16" height="16" src="data:image/svg+xml;base64,${btoa(svg.outerHTML)}">`;
+}
+md.block.ruler.before("fence", "pinned", (state, start, end, silent) => {
+  const line = (n: number) =>
+    state.src.slice(state.bMarks[n] + state.tShift[n], state.eMarks[n]);
+  if (!/^#\+BEGIN_PINNED\s*$/i.test(line(start))) return false;
+  let closing = start + 1,
+    nesting = 1,
+    fence = "";
+  for (; closing < end; closing++) {
+    const delimiter = line(closing).match(/^(`{3,}|~{3,})/);
+    if (delimiter) {
+      if (!fence) fence = delimiter[1];
+      else if (
+        delimiter[1][0] === fence[0] &&
+        delimiter[1].length >= fence.length &&
+        /^(`+|~+)\s*$/.test(line(closing))
+      )
+        fence = "";
+      continue;
+    }
+    if (fence) continue;
+    if (/^#\+BEGIN_PINNED\s*$/i.test(line(closing))) nesting++;
+    if (/^#\+END_PINNED\s*$/i.test(line(closing)) && --nesting === 0) break;
+  }
+  if (closing === end) return false;
+  if (silent) return true;
+  const open = state.push("pinned_open", "div", 1);
+  open.attrSet("class", "pinned");
+  open.map = [start, closing + 1];
+  const index = state.tokens.length;
+  const oldMax = state.lineMax,
+    oldParent = state.parentType;
+  state.lineMax = closing;
+  state.parentType = "blockquote";
+  state.md.block.tokenize(state, start + 1, closing);
+  const first = state.tokens.slice(index).findIndex((t) => t.type === "inline");
+  if (first >= 0 && /^(p|h[1-6])$/.test(state.tokens[index + first - 1]?.tag)) {
+    state.tokens[index + first - 1].attrJoin("class", "pinned-lead");
+    state.tokens[index + first].content =
+      `${pinImage()} | ${state.tokens[index + first].content}`;
+    open.meta = { lead: true };
+  }
+  state.push("pinned_close", "div", -1);
+  state.lineMax = oldMax;
+  state.parentType = oldParent;
+  state.line = closing + 1;
+  return true;
+});
+md.renderer.rules.pinned_open = (tokens, index) =>
+  `<div class="pinned">${tokens[index].meta?.lead ? "" : `<p class="pinned-lead">${pinImage()} |</p>`}`;
+md.renderer.rules.pinned_close = () => "</div>\n";
 const validateLink = md.validateLink.bind(md);
 md.validateLink = (url) => url.startsWith("logseq://") || validateLink(url);
+function normalizedColor(color: string, options: Options): string | undefined {
+  let resolved = color;
+  for (let depth = 0; depth < 8 && resolved.includes("var("); depth++)
+    resolved = resolved.replace(
+      /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]+))?\)/g,
+      (_, key, fallback) => options.colorVars?.[key] || fallback || "",
+    );
+  if (
+    !resolved ||
+    resolved.includes("var(") ||
+    /^(inherit|initial|unset|currentcolor)$/i.test(resolved)
+  )
+    return;
+  const probe = document.createElement("canvas").getContext("2d")!;
+  probe.fillStyle = "#ffffff";
+  probe.fillRect(0, 0, 1, 1);
+  probe.fillStyle = resolved;
+  probe.fillRect(0, 0, 1, 1);
+  return (
+    "#" +
+    Array.from(probe.getImageData(0, 0, 1, 1).data.slice(0, 3))
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
 export function inline(text: string, options: Options): string {
-  const html = DOMPurify.sanitize(md.render(cleanText(text)), {
+  const html = DOMPurify.sanitize(md.render(tableSource(cleanText(text))), {
     ADD_ATTR: ["style"],
     ALLOWED_URI_REGEXP:
       /^(?:(?:https?|mailto|logseq|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
@@ -29,35 +111,31 @@ export function inline(text: string, options: Options): string {
   });
   const root = document.createElement("div");
   root.innerHTML = html;
-  for (const el of root.querySelectorAll<HTMLElement>("[style], span[class]")) {
-    const color = el.style.color || options.classColors?.[el.className.trim()];
+  for (const el of root.querySelectorAll<HTMLElement>(
+    "[style], span[class], mark",
+  )) {
+    const color =
+      el.style.color ||
+      options.classColors?.[
+        el.tagName === "MARK"
+          ? `mark:${el.className.trim()}`
+          : el.className.trim()
+      ];
+    const highlight =
+      el.tagName === "MARK"
+        ? el.style.backgroundColor ||
+          options.classHighlights?.[el.className.trim()] ||
+          "#ffff00"
+        : "";
     el.removeAttribute("style");
     // Explicit colors are intentional; inherited theme colors are not copied.
     if (color) {
-      const probe = document.createElement("canvas").getContext("2d")!;
-      let resolved = color;
-      for (let depth = 0; depth < 8 && resolved.includes("var("); depth++)
-        resolved = resolved.replace(
-          /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]+))?\)/g,
-          (_, key, fallback) => options.colorVars?.[key] || fallback || "",
-        );
-      if (
-        !resolved ||
-        resolved.includes("var(") ||
-        /^(inherit|initial|unset|currentcolor)$/i.test(resolved)
-      )
-        continue;
-      probe.fillStyle = "#ffffff";
-      probe.fillRect(0, 0, 1, 1);
-      probe.fillStyle = resolved;
-      probe.fillRect(0, 0, 1, 1);
-      const channels = probe.getImageData(0, 0, 1, 1).data;
-      const normalized =
-        "#" +
-        Array.from(channels.slice(0, 3))
-          .map((v) => v.toString(16).padStart(2, "0"))
-          .join("");
-      el.style.color = darken(normalized, options.darken);
+      const normalized = normalizedColor(color, options);
+      if (normalized) el.style.color = darken(normalized, options.darken);
+    }
+    if (highlight) {
+      const normalized = normalizedColor(highlight, options);
+      if (normalized) el.style.backgroundColor = normalized;
     }
   }
   for (const a of root.querySelectorAll("a"))
@@ -171,10 +249,25 @@ export function htmlDocument(data: DocumentData, options: Options): string {
   *{box-sizing:border-box}html,body{background:#fff;color:#000;font:11pt/1.5 Arial,sans-serif;letter-spacing:0}body{margin:0;padding:${top}in ${right}in ${bottom}in ${left}in}h1{font-size:22pt}h2{font-size:16pt}p{margin:0 0 6pt}section{margin-top:14pt}.block,details{margin:5pt 0;overflow-wrap:anywhere}.children{padding-left:12pt;border-left:1px solid #ddd}summary{cursor:pointer}summary p{display:inline}img{max-width:100%;height:auto}pre{white-space:pre-wrap;background:#f3f4f5;padding:8pt}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #bbb;padding:4pt}dl{font-size:9pt;display:grid;grid-template-columns:max-content 1fr;gap:2pt 8pt}dd{margin:0}.notice{color:#8a230d}a{color:${darken(options.accent, options.darken)}}@media print{body{padding:0}details:not([open])>.children{display:block}summary{list-style:none}a{color:inherit}}
   .children .children .children .children .children{padding-left:0;border-left:0}
   h1{margin:0 0 20pt}section{margin-top:0}h2{margin:10pt 0}p{margin:0}dl:empty{display:none}.children{border:0;padding-left:15pt}.block,details{margin:4pt 0}.block-title{position:relative;padding-left:10pt}.block-title:before{content:'\u2022';position:absolute;left:0;color:#777}summary{list-style:none;position:relative;padding-left:10pt}summary:before{content:'\u2022';position:absolute;left:0;color:#777}summary::marker{content:''}summary::-webkit-details-marker{display:none}details:not([open])>summary:before{content:'\u25b8'}.embed-title{margin:0 0 6pt}.embedded{margin:6pt 0}table{width:100%;table-layout:fixed}th:first-child,td:first-child{width:22%}th,td{padding:5pt;text-align:left;vertical-align:middle;overflow-wrap:break-word}th{background:#f2f2f2}img{display:block;max-width:100%;height:auto}.empty-block{height:12pt}
-  h1{margin-bottom:30pt}.table-block{margin:10pt 0}figure{margin:0}figcaption{font-size:9pt;color:#555;margin-top:3pt}th{text-align:center}.block:last-child>.empty-block{display:none}
+  h1{margin-bottom:30pt}.table-block{margin:10pt 0}figure{margin:0}figcaption{font-size:9pt;color:#555;margin-top:3pt}th{text-align:center}.block:last-child>.empty-block{display:none}.pinned-icon{display:inline-block;width:12pt;height:12pt;vertical-align:middle}
   </style></head><body>${body(data, options)}<script>document.addEventListener('click',function(e){const a=e.target.closest('a[href^="#b-"]');if(!a)return;const n=document.getElementById(a.hash.slice(1));if(n){let p=n;while(p){if(p.tagName==='DETAILS')p.open=true;p=p.parentElement;}n.scrollIntoView();}});</script></body></html>`;
 }
 export function markdown(data: DocumentData, options: Options): string {
+  function source(text: string): string {
+    const normalized = tableSource(text);
+    const lines = normalized.split("\n");
+    for (const token of md.parse(normalized, {})) {
+      if (token.type !== "pinned_open" || !token.map) continue;
+      const [start, end] = token.map;
+      lines[start] = "";
+      lines[end - 1] = "";
+      const first = lines.findIndex(
+        (line, index) => index > start && index < end - 1 && line.trim(),
+      );
+      if (first >= 0) lines[first] = `\uD83D\uDCCC | ${lines[first]}`;
+    }
+    return lines.join("\n").trim();
+  }
   function render(n: Node, depth: number): string {
     if (isCycle(n)) return "";
     const indent = "  ".repeat(depth);
@@ -192,7 +285,7 @@ export function markdown(data: DocumentData, options: Options): string {
           .map((part, i) =>
             typeof part === "number"
               ? render(n.children[part], depth + 1)
-              : `${indent}${i === 0 ? "- " : "  "}${(part + (i === 0 ? textWithTags(n).slice(n.text.length) : "")).replace(/\n/g, `\n${indent}  `)}\n`,
+              : `${indent}${i === 0 ? "- " : "  "}${source(part + (i === 0 ? textWithTags(n).slice(n.text.length) : "")).replace(/\n/g, `\n${indent}  `)}\n`,
           )
           .join("") + props
       );
@@ -200,7 +293,7 @@ export function markdown(data: DocumentData, options: Options): string {
       return `${indent}- \u2192 ${textWithTags(n)}\n\n${n.children.map((c) => render(c, depth + 1)).join("")}`;
     if (n.kind === "page")
       return `${depth === 0 && data.nodes.length === 1 && n.text === data.title ? "" : `\n## ${n.text}\n\n`}${textWithTags(n) !== n.text ? `${textWithTags({ ...n, text: "" })}\n\n` : ""}${props}${n.children.map((c) => render(c, depth)).join("")}`;
-    return `${indent}- ${textWithTags(n).replace(/\n/g, `\n${indent}  `)}\n\n${props}${n.children.map((c) => render(c, depth + 1)).join("")}`;
+    return `${indent}- ${source(textWithTags(n)).replace(/\n/g, `\n${indent}  `)}\n\n${props}${n.children.map((c) => render(c, depth + 1)).join("")}`;
   }
   return `# ${data.title}\n\n${data.nodes.map((n) => render(n, 0)).join("")}`;
 }

@@ -1,9 +1,10 @@
 (() => {
-  const key = "complete-export:colors";
+  const key = "complete-export:styles-v2";
   const pluginId = document.currentScript?.dataset.ref || "complete-export";
   window.__completeExportColorHelpers ||= new Set();
-  if (window.__completeExportColorHelpers.has(pluginId)) return;
-  window.__completeExportColorHelpers.add(pluginId);
+  const helperKey = `${pluginId}:highlights-v1`;
+  if (window.__completeExportColorHelpers.has(helperKey)) return;
+  window.__completeExportColorHelpers.add(helperKey);
   window.addEventListener("message", (event) => {
     const request = event.data;
     const frame = document.getElementById(`${pluginId}_iframe`);
@@ -16,6 +17,7 @@
     )
       return;
     const colors = {};
+    const highlights = {};
     const container = document.createElement("div");
     container.style.cssText =
       "position:fixed;visibility:hidden;pointer-events:none";
@@ -34,8 +36,19 @@
         const color = getComputedStyle(sample).color;
         if (color !== inherited) colors[className] = color;
       }
+      const mark = document.createElement("mark");
+      mark.textContent = "Export highlight sample";
+      container.append(mark);
+      for (const className of (request.marks || []).slice(0, 256)) {
+        if (typeof className !== "string" || className.length > 512) continue;
+        mark.className = className;
+        const style = getComputedStyle(mark);
+        highlights[className] = style.backgroundColor;
+        if (style.color !== inherited)
+          colors[`mark:${className}`] = style.color;
+      }
       event.source.postMessage(
-        { type: key, id: request.id, colors },
+        { type: key, id: request.id, colors, highlights },
         event.origin === "null" ? "*" : event.origin,
       );
     } finally {

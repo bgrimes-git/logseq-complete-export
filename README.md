@@ -34,6 +34,8 @@ Settings persist across sessions. Default document margins are 0.35 inches on ea
 
 ## Format Behavior
 
+Pinned containers (`#+BEGIN_PINNED` / `#+END_PINNED`) render with a pin icon and separator in preview, DOCX, PDF and HTML; Markdown uses a pin symbol. Table cells may contain `<br>` and balanced multiline `<p>` elements. Theme-defined `<mark>` backgrounds are sampled alongside span colors and retained as text highlights in preview, DOCX, PDF and HTML. JSON keeps the resolved source text rather than converting its markup.
+
 The export panel's **Integration details** show plugin version, embed child counts, and color-helper status without note text, page names, UUIDs or class names. These details stay in the panel and are not added to exported documents.
 
 | Format | Preserved behavior |
