@@ -72,6 +72,23 @@ test.beforeEach(async ({ page }) => {
     };
     const blocks = [section, query, ...section.children];
     w.logseq = {
+      baseInfo: { id: "complete-export" },
+      resolveResourceFullUrl: () => "/export-colors.js",
+      _execCallableAPIAsync: async () => {
+        if (window.parent !== window) return;
+        const frame = document.createElement("iframe");
+        frame.id = "complete-export_iframe";
+        frame.hidden = true;
+        Object.defineProperty(frame, "contentWindow", { value: window });
+        document.body.append(frame);
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "/export-colors.js";
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Host helper did not load"));
+          document.head.append(script);
+        });
+      },
       settings: { exportOptions: { expandPages: true } },
       ready: async (fn: any) => fn(),
       updateSettings: () => {},
@@ -184,7 +201,7 @@ test("toolbar icon stays centered within the host button", async ({ page }) => {
   });
 });
 
-test("whole-page DB embed without name metadata exports in every format", async ({
+test("whole-page DB embed omitted by the SDK tree exports in every format", async ({
   page,
 }) => {
   await page.evaluate(() => {
@@ -199,16 +216,26 @@ test("whole-page DB embed without name metadata exports in every format", async 
     ls.Editor.getBlock = async () => embedded;
     ls.Editor.getPage = async (id: any) =>
       id === embedded.uuid || id === 20 ? embedded : oldPage(id);
-    ls.Editor.getPageBlocksTree = async (id: any) =>
-      id === embedded.uuid
-        ? [{ uuid: "inside", title: "Whole page content", children: [] }]
-        : [{ id: 10, uuid: "page-alias", title: "", children: [] }];
-    ls.DB.datascriptQuery = async (query: string) =>
+    ls.Editor.getPageBlocksTree = async () => [];
+    ls.DB.datascriptQuery = async (query: string, pageId?: number) =>
       query.includes(":logseq.class/Page")
         ? [[20, embedded.uuid]]
-        : query.includes(":find ?b ?target")
-          ? [[10, 20]]
-          : oldQuery(query);
+        : query.includes("(pull ?b") && query.includes(":block/parent")
+          ? pageId === 20
+            ? [
+                [
+                  {
+                    id: 21,
+                    uuid: "inside",
+                    title: "Whole page content",
+                    parent: { id: 20 },
+                  },
+                ],
+              ]
+            : [[{ id: 10, uuid: "page-alias", title: "", parent: { id: 1 } }]]
+          : query.includes(":find ?b ?target")
+            ? [[10, 20]]
+            : oldQuery(query);
   });
   await page.locator("#preview").click();
   await expect(
@@ -226,6 +253,73 @@ test("whole-page DB embed without name metadata exports in every format", async 
     if (["html", "markdown", "json"].includes(format))
       expect(await readFile((await file.path())!, "utf8")).toContain(
         "Whole page content",
+      );
+  }
+});
+
+test("theme class colors work across an inaccessible host iframe boundary", async ({
+  page,
+}) => {
+  const hostUrl = new URL("/color-host", page.url());
+  const childUrl = new URL("/", hostUrl);
+  childUrl.hostname = "export-child.test";
+  await page.route("http://export-child.test:47813/**", async (route) => {
+    const url = new URL(route.request().url());
+    url.hostname = hostUrl.hostname;
+    const response = await route.fetch({ url: url.href });
+    await route.fulfill({ response });
+  });
+  await page.route("**/color-host", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<style>.grey{color:rgb(128,128,128)}</style><script src="/export-colors.js"></script><iframe id="complete-export_iframe" src="${childUrl.href}" style="width:800px;height:900px"></iframe>`,
+    }),
+  );
+  await page.goto(hostUrl.href);
+  const frame = page.frameLocator("#complete-export_iframe");
+  await expect(frame.locator("#app")).toBeAttached();
+  const child = page.frames().find((f) => f.url() === childUrl.href)!;
+  await child.waitForFunction(() => !!(window as any).exportModel);
+  await child.evaluate(() => {
+    let blocked = false;
+    try {
+      void parent.document;
+    } catch {
+      blocked = true;
+    }
+    if (!blocked) throw new Error("The test must exercise a cross-origin host");
+    const ls = (window as any).logseq;
+    ls.Editor.getPageBlocksTree = async () => [
+      {
+        uuid: "color",
+        title: "<span class='grey'>Class-colored sample</span>",
+        children: [],
+      },
+    ];
+    (window as any).exportModel.openExporter();
+  });
+  await frame.locator("#preview").click();
+  await expect(frame.locator("#status")).toHaveText("Preview ready.");
+  await expect(frame.locator("#warnings")).toBeEmpty();
+  await expect(
+    frame.frameLocator("#previewFrame").locator("span.grey"),
+  ).toHaveCSS("color", "rgb(96, 96, 96)");
+  await expect(frame.locator("#warnings")).toBeEmpty();
+  for (const format of ["docx", "pdf", "html"]) {
+    await frame.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await frame.locator("#export").click();
+    const file = await downloaded;
+    await expect(frame.locator("#status")).toHaveText("Export created.");
+    if (format === "docx")
+      expect(
+        strFromU8(
+          unzipSync(await readFile((await file.path())!))["word/document.xml"],
+        ),
+      ).toContain('w:val="606060"');
+    if (format === "html")
+      expect(await readFile((await file.path())!, "utf8")).toContain(
+        "rgb(96, 96, 96)",
       );
   }
 });
@@ -256,6 +350,7 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
     "color",
     "rgb(191, 0, 0)",
   );
+  await expect(page.locator("#warnings")).toBeEmpty();
   await expect(
     page.frameLocator("#previewFrame").locator("#class-color"),
   ).toHaveCSS("color", "rgb(96, 96, 96)");

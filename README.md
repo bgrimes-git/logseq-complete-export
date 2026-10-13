@@ -30,7 +30,7 @@ DB query definitions are read directly from `:logseq.property/query` nodes, whic
 
 ## Features
 
-Settings persist across sessions. Default document margins are 0.35 inches on each side. Main text is black and background is white, independent of the theme. Accent colors can be selected and darkened. Explicit inline span colors are retained, including colors with alpha (composited against white); CSS color variables are resolved through the SDK when available. Theme-defined span classes are converted to explicit text colors for preview, DOCX, PDF and HTML when host DOM access is available. Inherited theme colors and source background/layout styles are not copied.
+Settings persist across sessions. Default document margins are 0.35 inches on each side. Main text is black and background is white, independent of the theme. Accent colors can be selected and darkened. Explicit inline span colors are retained, including colors with alpha (composited against white); CSS color variables are resolved through the SDK when available. A bundled, read-only host helper converts theme-defined span classes to explicit text colors for preview, DOCX, PDF and HTML, including when the plugin iframe cannot access the host document. It uses Logseq's experimental script-loading API and sends only requested class names and resolved colors between the plugin and host; no network service is involved. Inherited theme colors and source background/layout styles are not copied.
 
 ## Format Behavior
 

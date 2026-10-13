@@ -19,6 +19,8 @@ import { htmlDocument } from "./render";
 import "./style.css";
 import { Queries } from "./queries";
 import { engine } from "./query-runtime";
+import { readClassColors } from "./host-colors";
+import { readDbPageTree } from "./db-tree";
 
 const app = document.getElementById("app")!;
 let context: { block?: string; page?: string } = {};
@@ -143,7 +145,7 @@ async function collect(): Promise<DocumentData> {
     {
       getBlock: (...args) => logseq.Editor.getBlock(...args),
       getPage: (id) => logseq.Editor.getPage(id),
-      getPageBlocksTree: (id) => logseq.Editor.getPageBlocksTree(id),
+      getPageBlocksTree: (id) => readDbPageTree(logseq, id),
       getBlockProperties: (id) => logseq.Editor.getBlockProperties(id),
       getPageProperties: (id) => logseq.Editor.getPageProperties(id),
       isPage: (entity) =>
@@ -256,31 +258,7 @@ async function run(preview: boolean) {
     collectColors(data.nodes);
     options.classColors = {};
     try {
-      const host = parent.document;
-      const container = host.createElement("div");
-      container.style.cssText =
-        "position:fixed;visibility:hidden;pointer-events:none";
-      container.className = "block-content";
-      (host.querySelector(".ls-block .block-content") ?? host.body).append(
-        container,
-      );
-      try {
-        const baseline = host.createElement("span");
-        baseline.textContent = "Export color sample";
-        container.append(baseline);
-        const inherited = parent.getComputedStyle(baseline).color;
-        for (const className of classes) {
-          const sample = host.createElement("span");
-          sample.className = className;
-          sample.textContent = "Export color sample";
-          container.append(sample);
-          const color = parent.getComputedStyle(sample).color;
-          if (color !== inherited) options.classColors[className] = color;
-          sample.remove();
-        }
-      } finally {
-        container.remove();
-      }
+      options.classColors = await readClassColors([...classes]);
     } catch {
       if (classes.size)
         data.warnings.push(
