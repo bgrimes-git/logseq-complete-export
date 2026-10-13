@@ -371,18 +371,33 @@ test("large embedded page between two blocks retains both tables and the next em
         parent: { id: 1 },
         order: "d",
       },
-      { id: 25, uuid: "blank-intermediate", title: "", parent: { id: 20 } },
+      {
+        id: 26,
+        uuid: "first-row",
+        title: "First embedded row",
+        parent: { id: 20 },
+        order: "a",
+      },
+      {
+        id: 25,
+        uuid: "blank-intermediate",
+        title: "",
+        parent: { id: 20 },
+        order: "b",
+      },
       {
         id: 21,
         uuid: "branch-a",
         title: "First branch \u{1F4CC}",
-        parent: { id: 25 },
+        parent: { id: 20 },
+        order: "c",
       },
       {
         id: 22,
         uuid: "branch-b",
         title: "Second branch \u{1F4CC}",
-        parent: { id: 25 },
+        parent: { id: 20 },
+        order: "d",
       },
       { id: 23, uuid: "large-table", title: table(118), parent: { id: 21 } },
       { id: 24, uuid: "small-table", title: table(5), parent: { id: 22 } },
@@ -397,8 +412,12 @@ test("large embedded page between two blocks retains both tables and the next em
     ls.Editor.getAllPages = async () => [root];
     ls.Editor.getPage = async (id: any) =>
       [root, heavy, other].find((p) => p.id === id || p.uuid === id);
-    ls.Editor.getBlock = async (id: any) =>
-      [heavy, other].find((p) => p.id === id || p.uuid === id);
+    ls.Editor.getBlock = async (id: any, options: any) => {
+      const target = [heavy, other].find((p) => p.id === id || p.uuid === id);
+      if (!target || !options?.includeChildren) return target;
+      // Match Logseq's expanded-page SDK response: the first child, not the root.
+      return records.find((row) => row.parent.id === target.id);
+    };
     ls.Editor.getPageBlocksTree = async () => [];
     ls.DB.datascriptQuery = async (q: string, input?: any) => {
       if (q.includes(":logseq.class/Page"))
@@ -432,7 +451,7 @@ test("large embedded page between two blocks retains both tables and the next em
     page.frameLocator("#previewFrame").locator("tbody tr"),
   ).toHaveCount(123);
   await expect(page.locator("#integrationDetails")).toContainText(
-    "direct children: 1",
+    "page; direct children: 4",
   );
   await expect(page.locator("#integrationDetails")).not.toContainText(
     "Large embedded page",

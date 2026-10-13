@@ -8,3 +8,4 @@ marketplace-master/
 tests/strategy.fixture.json
 scripts/review-strategy.mjs
 .publish-work/
+.codex-remote-attachments/

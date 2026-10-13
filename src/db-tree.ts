@@ -60,10 +60,22 @@ export async function readDbBlock(
   opts?: object,
   pageIds?: ReadonlySet<string>,
 ): Promise<any> {
-  const block = await ls.Editor.getBlock(id, opts);
+  // The DB SDK's expanded page tree can return its first child instead of the root.
+  const rootOptions = {
+    ...opts,
+    includeChildren: false,
+    includePage: true,
+  };
+  const block = await ls.Editor.getBlock(id, rootOptions);
   if (!block || typeof block.id !== "number") return block;
   const children = await readDbChildren(ls, block.id, pageIds);
-  return children ? { ...block, children } : block;
+  if (children) return { ...block, children };
+  if ((opts as { includeChildren?: boolean } | undefined)?.includeChildren) {
+    const expanded = await ls.Editor.getBlock(id, opts);
+    if (expanded && expanded.uuid === block.uuid && expanded.id === block.id)
+      return expanded;
+  }
+  return block;
 }
 
 async function readDbChildren(

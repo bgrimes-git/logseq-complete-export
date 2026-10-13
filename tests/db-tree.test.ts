@@ -111,6 +111,66 @@ test("unavailable DB snapshot retains the SDK fallback", async () => {
   assert.equal((await readDbPageTree(ls, "page"))![0].uuid, "fallback");
 });
 
+test("a page root is not replaced by the first child returned by SDK expansion", async () => {
+  const root = {
+    id: 20,
+    uuid: "embedded-page",
+    title: "Embedded page",
+    name: "embedded page",
+  };
+  const first = {
+    id: 21,
+    uuid: "first-row",
+    title: "First row",
+    parent: { id: 20 },
+    children: [],
+  };
+  const blank = { id: 22, uuid: "blank", title: "", parent: { id: 20 } };
+  const body = {
+    id: 23,
+    uuid: "body",
+    title: "Actual page body",
+    parent: { id: 20 },
+  };
+  const records = [first, blank, body];
+  const ls: any = {
+    Editor: {
+      getBlock: async (_id: any, opts: any) =>
+        opts.includeChildren ? first : root,
+    },
+    DB: {
+      datascriptQuery: async (_q: string, input: string) => {
+        const parents = input.slice(1, -1).split(" ").map(Number);
+        return records
+          .filter((r) => parents.includes(r.parent.id))
+          .map((r) => [r]);
+      },
+    },
+  };
+  const result = await readDbBlock(ls, 20, { includeChildren: true });
+  assert.equal(result.id, 20);
+  assert.equal(result.uuid, root.uuid);
+  assert.deepEqual(
+    result.children.map((b: any) => b.uuid),
+    ["first-row", "blank", "body"],
+  );
+});
+
+test("an expanded SDK fallback with a different identity cannot overwrite the root", async () => {
+  const root = { id: 20, uuid: "page", title: "Page", children: [] };
+  const ls: any = {
+    Editor: {
+      getBlock: async (_id: any, opts: any) =>
+        opts.includeChildren ? { id: 21, uuid: "child" } : root,
+    },
+    DB: { datascriptQuery: async () => [] },
+  };
+  assert.equal(
+    (await readDbBlock(ls, 20, { includeChildren: true })).uuid,
+    "page",
+  );
+});
+
 test("physical traversal does not expand separate namespace child pages", async () => {
   const ls: any = {
     Editor: {
