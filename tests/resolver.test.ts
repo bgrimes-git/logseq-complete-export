@@ -191,6 +191,27 @@ test("missing root pages stop export and embedded missing pages have readable no
   const nested = await r.page({ uuid: "missing" }, new Set(["parent"]));
   assert.equal(nested.text, "Missing page: missing");
 });
+
+test("page references without UUIDs use scalar IDs or names without false cycles", async () => {
+  const root = { name: "workshop", title: "Workshop" };
+  const linked = { id: 42, name: "supplies", title: "Supplies" };
+  const resolver = new Resolver(
+    {
+      getBlock: async () => null,
+      getPage: async (id) => (id === "workshop" ? root : linked),
+      getPageBlocksTree: async (id) =>
+        id === "workshop"
+          ? [{ uuid: "link", title: "[[Supplies]]" }]
+          : [{ uuid: "supply", title: "Paper" }],
+    },
+    defaults,
+  );
+  const node = await resolver.page(root);
+  assert.equal(node.uuid, "workshop");
+  assert.equal(node.children[0].children[0].uuid, "42");
+  assert.equal(node.children[0].children[0].children[0].text, "Paper");
+  assert.deepEqual(resolver.warnings, []);
+});
 test("DB hidden link restores the embedded title without duplicating flattened children", async () => {
   const r = new Resolver(
     {

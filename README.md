@@ -56,9 +56,9 @@ Only the selected content is collected, including embeds and query sections with
 
 Marketplace installation handles downloading and installing the plugin; there is no need to extract a ZIP or load an unpacked folder.
 
-**Availability:** the [marketplace submission](https://github.com/logseq/marketplace/pull/927) is awaiting approval. These steps apply once the plugin is listed. Until then, use the manual option below.
+For an existing installation, open **Plugins > Installed** and use **Check update** or **Update** on Complete Export. If the latest release has not appeared in the marketplace yet, use the manual option below.
 
-### Manual Installation (Before Listing or for Testing)
+### Manual Installation (Fallback or for Testing)
 
 1. Download the plugin ZIP attached to the [latest release](https://github.com/bgrimes-git/logseq-complete-export/releases/latest), not GitHub's source-code archive, and extract it into a dedicated folder.
 2. Enable developer mode in Logseq DB's settings.

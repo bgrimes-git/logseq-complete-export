@@ -105,6 +105,70 @@ const sample: DocumentData = {
     },
   ],
 };
+test("branch labels preserve inline embeds and circular page notices in every format", async () => {
+  const { Resolver } = await import("../src/model");
+  const page = {
+    uuid: "workshop-page",
+    id: 30,
+    name: "workshop",
+    title: "Workshop",
+  };
+  const blocks: Record<string, any> = {
+    "20": {
+      id: 20,
+      uuid: "branch-target",
+      page: { id: 30 },
+      title: "Before {{embed ((detail))}} middle {{embed [[Workshop]]}} after",
+      children: [],
+    },
+    detail: { uuid: "detail", title: "Embedded detail", children: [] },
+  };
+  const resolver = new Resolver(
+    {
+      getBlock: async (id) => blocks[String(id)] ?? null,
+      getPage: async () => page,
+      getPageBlocksTree: async () => [
+        { id: 10, uuid: "branch-alias", title: "", children: [] },
+      ],
+      getLinkedTarget: async (id) => (id === 10 ? 20 : undefined),
+    },
+    defaults,
+  );
+  const root = await resolver.page(page);
+  const wrapper = root.children[0];
+  assert.equal(wrapper.ordered, undefined);
+  assert.ok(wrapper.children[0].ordered);
+  assert.deepEqual(resolver.warnings, ["Circular page reference: Workshop"]);
+  const data = {
+    ...sample,
+    title: "Workshop",
+    nodes: [root],
+    warnings: resolver.warnings,
+  };
+  assert.match(htmlDocument(data, defaults), /Embedded detail/);
+  for (const format of ["docx", "pdf", "html", "markdown", "json"] as const) {
+    let result: Blob | undefined;
+    await exportFile(
+      data,
+      defaults,
+      format,
+      (s) => s,
+      (blob) => {
+        result = blob;
+      },
+    );
+    assert.ok(
+      result && result.size > 0,
+      `${format} must export despite a reference cycle`,
+    );
+    if (["html", "markdown", "json"].includes(format)) {
+      const text = await result.text();
+      assert.match(text, /Embedded detail/);
+      assert.match(text, /Circular page reference: Workshop/);
+    }
+  }
+});
+
 test("HTML preserves collapsible hierarchy, neutral colors and configurable margins", () => {
   const html = htmlDocument(sample, defaults);
   assert.match(html, /background:#fff;color:#000/);

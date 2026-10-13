@@ -6,6 +6,7 @@ import {
   escape,
   type Options,
   type DocumentData,
+  pageIdentity,
 } from "./model";
 import {
   exportFile,
@@ -161,7 +162,7 @@ async function collect(): Promise<DocumentData> {
       .sort((a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name));
     for (let i = 0; i < visible.length; i++) {
       status(`Reading page ${i + 1} of ${visible.length}...`);
-      nodes.push(await resolver.page({ uuid: visible[i].uuid }));
+      nodes.push(await resolver.page(pageIdentity(visible[i])));
     }
   } else if (source === "page" || source === "named") {
     const page =
@@ -172,7 +173,7 @@ async function collect(): Promise<DocumentData> {
           : await logseq.Editor.getCurrentPage();
     if (!page)
       throw new Error("Page not found. Open a page or enter its exact name.");
-    const node = await resolver.page({ uuid: page.uuid });
+    const node = await resolver.page(pageIdentity(page));
     title = node.text;
     nodes = [node];
   } else {

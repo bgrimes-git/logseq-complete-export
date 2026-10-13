@@ -126,7 +126,7 @@ export class Resolver {
       if (!path.size) throw new Error(`Page not found: ${identity}`);
       return this.notice(`Missing page: ${identity}`);
     }
-    const key = String(page.uuid ?? page.id);
+    const key = String(pageIdentity(page));
     if (path.has(key))
       return this.notice(`Circular page reference: ${textOf(page)}`);
     const next = new Set(path).add(key);
@@ -184,10 +184,14 @@ export class Resolver {
         (await this.api.getLinkedTitle?.(b.id ?? key)) ??
         (sourcePage ? textOf(sourcePage) : undefined);
       return {
-        ...node,
         ...(sourceTitle && target.name === undefined
-          ? { text: sourceTitle, children: [node] }
-          : {}),
+          ? {
+              text: sourceTitle,
+              children: [node],
+              kind: "block" as const,
+              properties: {},
+            }
+          : node),
         uuid: key,
         embedded: true,
         collapsed: !!(b["collapsed?"] ?? b.collapsed),
@@ -241,7 +245,7 @@ export class Resolver {
             if (entity && String(entity.uuid ?? entity.id) !== key)
               nested.push(
                 entity.name !== undefined
-                  ? await this.page({ uuid: entity.uuid }, next)
+                  ? await this.page(pageIdentity(entity), next)
                   : await this.block(entity, next),
               );
           } else
@@ -304,7 +308,7 @@ export class Resolver {
           segmentStart = result.length;
           nested.push(
             isPage || entity.name !== undefined
-              ? await this.page({ uuid: entity.uuid }, next)
+              ? await this.page(pageIdentity(entity), next)
               : await this.block(entity, next),
           );
         }
@@ -337,7 +341,7 @@ export class Resolver {
           if (ordered.length) ordered.push(nested.length);
           nested.push(
             target.name !== undefined
-              ? await this.page({ uuid: target.uuid }, next)
+              ? await this.page(pageIdentity(target), next)
               : await this.block(target, next),
           );
         }
