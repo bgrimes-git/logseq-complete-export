@@ -146,9 +146,9 @@ async function collect(): Promise<DocumentData> {
   for (const [id, title] of titleRows ?? []) linkedTitles.set(id, title);
   const resolver = new Resolver(
     {
-      getBlock: (id, opts) => readDbBlock(logseq, id, opts),
+      getBlock: (id, opts) => readDbBlock(logseq, id, opts, pageIds),
       getPage: (id) => logseq.Editor.getPage(id),
-      getPageBlocksTree: (id) => readDbPageTree(logseq, id),
+      getPageBlocksTree: (id) => readDbPageTree(logseq, id, pageIds),
       getBlockProperties: (id) => logseq.Editor.getBlockProperties(id),
       getPageProperties: (id) => logseq.Editor.getPageProperties(id),
       isPage: (entity) =>

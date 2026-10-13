@@ -221,11 +221,11 @@ test("whole-page DB embed omitted by the SDK tree exports in every format", asyn
     ls.Editor.getPage = async (id: any) =>
       id === embedded.uuid || id === 20 ? embedded : oldPage(id);
     ls.Editor.getPageBlocksTree = async () => [];
-    ls.DB.datascriptQuery = async (query: string, pageId?: number) =>
+    ls.DB.datascriptQuery = async (query: string, parents?: string) =>
       query.includes(":logseq.class/Page")
         ? [[20, embedded.uuid]]
-        : query.includes("(pull ?b") && query.includes(":in $ ?page")
-          ? pageId === 20
+        : query.includes("(pull ?b") && query.includes(":in $ [?parent")
+          ? parents === "[20]"
             ? [
                 [
                   {
@@ -236,7 +236,9 @@ test("whole-page DB embed omitted by the SDK tree exports in every format", asyn
                   },
                 ],
               ]
-            : [[{ id: 10, uuid: "page-alias", title: "", parent: { id: 1 } }]]
+            : parents === "[1]"
+              ? [[{ id: 10, uuid: "page-alias", title: "", parent: { id: 1 } }]]
+              : []
           : query.includes(":find ?b ?target")
             ? [[10, 20]]
             : oldQuery(query);
@@ -356,11 +358,11 @@ test("large embedded page between two blocks retains both tables and the next em
       {
         id: 2,
         uuid: "before",
-        title: "Before the embeds",
+        title: "Plain-text section label",
         parent: { id: 1 },
         order: "a",
       },
-      { id: 10, uuid: "heavy-alias", title: "", parent: { id: 1 }, order: "b" },
+      { id: 10, uuid: "heavy-alias", title: "", parent: { id: 2 }, order: "b" },
       { id: 11, uuid: "other-alias", title: "", parent: { id: 1 }, order: "c" },
       {
         id: 12,
@@ -369,17 +371,18 @@ test("large embedded page between two blocks retains both tables and the next em
         parent: { id: 1 },
         order: "d",
       },
+      { id: 25, uuid: "blank-intermediate", title: "", parent: { id: 20 } },
       {
         id: 21,
         uuid: "branch-a",
         title: "First branch \u{1F4CC}",
-        parent: { id: 20 },
+        parent: { id: 25 },
       },
       {
         id: 22,
         uuid: "branch-b",
         title: "Second branch \u{1F4CC}",
-        parent: { id: 20 },
+        parent: { id: 25 },
       },
       { id: 23, uuid: "large-table", title: table(118), parent: { id: 21 } },
       { id: 24, uuid: "small-table", title: table(5), parent: { id: 22 } },
@@ -429,7 +432,7 @@ test("large embedded page between two blocks retains both tables and the next em
     page.frameLocator("#previewFrame").locator("tbody tr"),
   ).toHaveCount(123);
   await expect(page.locator("#integrationDetails")).toContainText(
-    "direct children: 2",
+    "direct children: 1",
   );
   await expect(page.locator("#integrationDetails")).not.toContainText(
     "Large embedded page",
@@ -459,6 +462,12 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
 }) => {
   await page.evaluate(() => {
     const ls = (window as any).logseq;
+    const loadHelper = ls._execCallableAPIAsync;
+    let attempts = 0;
+    ls._execCallableAPIAsync = async (...args: any[]) => {
+      if (++attempts === 1) throw new Error("Synthetic startup failure");
+      return loadHelper(...args);
+    };
     ls.UI.resolveThemeCssPropsVals = async () => ({
       "--demo-accent": "#008000",
       "--ls-primary-text-color": "rgb(180, 140, 100)",

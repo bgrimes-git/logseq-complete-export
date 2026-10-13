@@ -43,16 +43,14 @@ export function buildDbTree(rows: any[], pageId: number): any[] | undefined {
 export async function readDbPageTree(
   ls: typeof logseq,
   identity: any,
+  pageIds?: ReadonlySet<string>,
 ): Promise<any[] | null> {
   const page = await ls.Editor.getPage(identity);
   if (typeof page?.id !== "number")
     return ls.Editor.getPageBlocksTree(identity);
-  const rows = await ls.DB.datascriptQuery(
-    "[:find (pull ?b [:db/id :block/uuid :block/title :block/order :block/collapsed? {:block/parent [:db/id]} {:block/link [:db/id :block/uuid]}]) :in $ ?page :where [?b :block/page ?page] [?b :block/parent]]",
-    page.id,
-  );
   return (
-    buildDbTree(rows ?? [], page.id) ?? ls.Editor.getPageBlocksTree(identity)
+    (await readDbChildren(ls, page.id, pageIds)) ??
+    ls.Editor.getPageBlocksTree(identity)
   );
 }
 
@@ -60,12 +58,22 @@ export async function readDbBlock(
   ls: typeof logseq,
   id: string | number,
   opts?: object,
+  pageIds?: ReadonlySet<string>,
 ): Promise<any> {
   const block = await ls.Editor.getBlock(id, opts);
   if (!block || typeof block.id !== "number") return block;
+  const children = await readDbChildren(ls, block.id, pageIds);
+  return children ? { ...block, children } : block;
+}
+
+async function readDbChildren(
+  ls: typeof logseq,
+  rootId: number,
+  pageIds?: ReadonlySet<string>,
+): Promise<any[] | undefined> {
   const records: any[] = [];
-  const seen = new Set<number>([block.id]);
-  let pending = [block.id];
+  const seen = new Set<number>([rootId]);
+  let pending = [rootId];
   for (let depth = 0; pending.length; depth++) {
     if (depth > 80)
       throw new Error("The DB branch exceeds the 80-level export limit.");
@@ -78,6 +86,8 @@ export async function readDbBlock(
       const child = Array.isArray(row) ? row[0] : row;
       if (typeof child?.id !== "number" || typeof child.uuid !== "string")
         continue;
+      // Namespace child pages are separate documents, not outline descendants.
+      if (pageIds?.has(String(child.id)) || pageIds?.has(child.uuid)) continue;
       if (seen.has(child.id))
         throw new Error("The DB branch contains a parent cycle.");
       seen.add(child.id);
@@ -87,6 +97,5 @@ export async function readDbBlock(
     if (records.length > 50000)
       throw new Error("The DB branch exceeds the 50,000-block export limit.");
   }
-  const children = buildDbTree(records, block.id);
-  return children ? { ...block, children } : block;
+  return buildDbTree(records, rootId);
 }

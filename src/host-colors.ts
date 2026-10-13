@@ -2,6 +2,22 @@ let loading: Promise<unknown> | undefined;
 export async function readClassColors(
   classes: string[],
 ): Promise<Record<string, string>> {
+  try {
+    return await readOnce(classes);
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !["COLOR_HELPER_LOAD_FAILED", "COLOR_HELPER_TIMEOUT"].includes(
+        error.message,
+      )
+    )
+      throw error;
+    loading = undefined;
+    return readOnce(classes);
+  }
+}
+
+async function readOnce(classes: string[]): Promise<Record<string, string>> {
   if (!classes.length) return {};
   const sdk = logseq as typeof logseq & {
     _execCallableAPIAsync(method: string, ...args: unknown[]): Promise<unknown>;

@@ -44,8 +44,9 @@ test("a DB page tree restores blocks absent from the rendered SDK tree", async (
       getPageBlocksTree: async () => [],
     },
     DB: {
-      datascriptQuery: async (_q: string, id: number) => {
-        assert.equal(id, 1);
+      datascriptQuery: async (_q: string, id: string) => {
+        if (id === "[2]") return [];
+        assert.equal(id, "[1]");
         return [
           [
             {
@@ -65,6 +66,40 @@ test("a DB page tree restores blocks absent from the rendered SDK tree", async (
   );
 });
 
+test("page traversal continues under blank nodes without page-membership metadata", async () => {
+  const records = [
+    { id: 2, uuid: "blank", title: "", parent: { id: 1 } },
+    {
+      id: 3,
+      uuid: "content",
+      title: "Content below blank row",
+      parent: { id: 2 },
+    },
+    { id: 4, uuid: "later", title: "Later branch", parent: { id: 1 } },
+  ];
+  const ls: any = {
+    Editor: {
+      getPage: async () => ({ id: 1 }),
+      getPageBlocksTree: async () => [
+        { id: 2, uuid: "blank", title: "", children: [] },
+      ],
+    },
+    DB: {
+      datascriptQuery: async (q: string, input: string) => {
+        assert.ok(!q.includes(":block/page"));
+        const parents = input.slice(1, -1).split(" ").map(Number);
+        return records
+          .filter((r) => parents.includes(r.parent.id))
+          .map((r) => [r]);
+      },
+    },
+  };
+  const result = await readDbPageTree(ls, "page");
+  assert.equal(result![0].title, "");
+  assert.equal(result![0].children[0].title, "Content below blank row");
+  assert.equal(result![1].title, "Later branch");
+});
+
 test("unavailable DB snapshot retains the SDK fallback", async () => {
   const ls: any = {
     Editor: {
@@ -74,6 +109,47 @@ test("unavailable DB snapshot retains the SDK fallback", async () => {
     DB: { datascriptQuery: async () => [] },
   };
   assert.equal((await readDbPageTree(ls, "page"))![0].uuid, "fallback");
+});
+
+test("physical traversal does not expand separate namespace child pages", async () => {
+  const ls: any = {
+    Editor: {
+      getPage: async () => ({ id: 1 }),
+      getPageBlocksTree: async () => [],
+    },
+    DB: {
+      datascriptQuery: async (_q: string, input: string) =>
+        input === "[1]"
+          ? [
+              [
+                {
+                  id: 2,
+                  uuid: "own-block",
+                  title: "Own outline",
+                  parent: { id: 1 },
+                },
+              ],
+              [
+                {
+                  id: 9,
+                  uuid: "subpage",
+                  title: "Separate page",
+                  parent: { id: 1 },
+                },
+              ],
+            ]
+          : [],
+    },
+  };
+  const result = await readDbPageTree(
+    ls,
+    "page",
+    new Set(["1", "9", "subpage"]),
+  );
+  assert.deepEqual(
+    result!.map((block) => block.uuid),
+    ["own-block"],
+  );
 });
 
 test("DB child reads restore a capped SDK target with branches, large tables and pins", async () => {
