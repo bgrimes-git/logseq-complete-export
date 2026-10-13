@@ -23,16 +23,17 @@ export function tableSource(text: string): string {
       (s.match(/<p\b[^>]*>/gi)?.length ?? 0) -
       (s.match(/<\/p\s*>/gi)?.length ?? 0);
     let open = depth(row);
-    while (open > 0 && next + 1 < lines.length) {
+    while ((open > 0 || !/\|\s*$/.test(row)) && next + 1 < lines.length) {
       if (
         /^\s*\|/.test(lines[next + 1]) ||
-        /^\s*(`{3,}|~{3,})/.test(lines[next + 1])
+        /^\s*(`{3,}|~{3,})/.test(lines[next + 1]) ||
+        (!open && !lines[next + 1].trim())
       )
         break;
-      row += " " + lines[++next].trim();
+      row += (open ? " " : "<br>") + lines[++next].trim();
       open += depth(lines[next]);
     }
-    if (open !== 0) {
+    if (open !== 0 || !/\|\s*$/.test(row)) {
       output.push(lines[i]);
       continue;
     }
@@ -46,5 +47,56 @@ export function tableSource(text: string): string {
       row = row.replace(/\+/g, "|");
     output.push(row);
   }
-  return output.join("\n");
+  // Logseq accepts pipe tables without the separator MarkdownIt requires.
+  // Only infer a table from complete, consecutive rows with matching cell counts.
+  const result: string[] = [];
+  let rows: string[] = [];
+  const cellCount = (row: string) => {
+    let pipes = 0,
+      escaped = false;
+    for (const character of row) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character === "\\") escaped = true;
+      else if (character === "|") pipes++;
+    }
+    return pipes - 1;
+  };
+  const separator = (row: string) => /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/.test(row);
+  function flush() {
+    const count = rows.length ? cellCount(rows[0]) : 0;
+    if (
+      rows.length >= 2 &&
+      count >= 2 &&
+      rows.every((row) => cellCount(row) === count) &&
+      !rows.some(separator)
+    )
+      rows.splice(1, 0, "|" + " --- |".repeat(count));
+    result.push(...rows);
+    rows = [];
+  }
+  fence = "";
+  for (const row of output) {
+    const delimiter = row.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (delimiter) {
+      flush();
+      if (!fence) fence = delimiter[1];
+      else if (
+        delimiter[1][0] === fence[0] &&
+        delimiter[1].length >= fence.length &&
+        /^ {0,3}(`+|~+)\s*$/.test(row)
+      )
+        fence = "";
+      result.push(row);
+    } else if (!fence && /^ {0,3}\|.*\|\s*$/.test(row) && !/<\/?p\b/i.test(row))
+      rows.push(row);
+    else {
+      flush();
+      result.push(row);
+    }
+  }
+  flush();
+  return result.join("\n");
 }

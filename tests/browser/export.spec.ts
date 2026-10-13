@@ -612,6 +612,51 @@ test("pinned blocks and paragraph table cells remain formatted", async ({
   }
 });
 
+test("separator-free six-column tables export as real tables", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    (window as any).logseq.Editor.getPageBlocksTree = async () => [
+      {
+        uuid: "separator-free",
+        title:
+          "| Item | Category | Owner | State | Next step | Notes |\n| A | Supplies | Team | Ready | Review | <p>First<br>second</p> |\n| B | Tools | Group | Waiting | Check | <p>Another\nparagraph</p> |",
+        children: [],
+      },
+    ];
+  });
+  await page.locator("#preview").click();
+  const preview = page.frameLocator("#previewFrame");
+  await expect(preview.locator("table th")).toHaveCount(6);
+  await expect(preview.locator("table td")).toHaveCount(12);
+  await mkdir("qa-results/tables", { recursive: true });
+  await preview
+    .locator("body")
+    .screenshot({ path: "qa-results/tables/preview.png" });
+  for (const format of ["docx", "pdf", "html", "markdown"]) {
+    await page.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await file.saveAs(
+      `qa-results/tables/Table.${format === "markdown" ? "md" : format}`,
+    );
+    const bytes = await readFile((await file.path())!);
+    if (format === "docx") {
+      const xml = strFromU8(unzipSync(bytes)["word/document.xml"]);
+      expect(xml.match(/<w:tbl>/g)).toHaveLength(1);
+      expect(xml.match(/<w:tr>/g)).toHaveLength(3);
+      expect(xml.match(/<w:tc>/g)).toHaveLength(18);
+    }
+    if (format === "html") expect(bytes.toString()).toContain("<table>");
+    if (format === "markdown")
+      expect(bytes.toString()).toContain(
+        "| --- | --- | --- | --- | --- | --- |",
+      );
+    await expect(page.locator("#status")).toHaveText("Export created.");
+  }
+});
+
 test("rich synthetic exports are readable and safely packaged in all five formats", async ({
   page,
 }) => {
