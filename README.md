@@ -22,7 +22,7 @@ Linked-reference and unlinked-reference panels are not included. References, emb
 4. Adjust content options, paper size, margins, and accent colors as needed.
 5. Click **Preview** to review the resolved content, then **Export** to download the selected format. DOCX and PDF paginate according to the selected paper size.
 
-Nested block/page references and page/block embeds resolve recursively, including collapsed children. Circular and missing references produce visible notices and a companion report.
+Explicit page/block embeds and referenced block branches resolve recursively, including collapsed children. Ordinary page links stay inline by default; enable **Include linked pages** only when you want to include those pages' contents. Tags stay inline and never expand their tag pages. Circular-reference warnings appear in the plugin's notices and companion report, not the exported document body. Missing references remain visible so missing content is not silently hidden.
 
 ## Query Support
 

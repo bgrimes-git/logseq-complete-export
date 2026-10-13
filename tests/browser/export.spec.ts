@@ -71,7 +71,7 @@ test.beforeEach(async ({ page }) => {
     };
     const blocks = [section, query, ...section.children];
     w.logseq = {
-      settings: {},
+      settings: { exportOptions: { expandPages: true } },
       ready: async (fn: any) => fn(),
       updateSettings: () => {},
       setMainUIInlineStyle: (style: any) => {
@@ -159,6 +159,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#export")).toBeVisible();
 });
 test("toolbar icon stays centered within the host button", async ({ page }) => {
+  await expect(page.locator("#pages")).not.toBeChecked();
   const dimensions = await page.evaluate(() => {
     const host = document.createElement("div");
     host.style.cssText =

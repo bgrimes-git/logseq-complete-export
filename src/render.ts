@@ -51,13 +51,39 @@ function visibleProperties(node: Node) {
   return Object.entries(node.properties).flatMap(
     ([key, value]): [string, unknown][] => {
       if (/^:?block\/tags$/.test(key) && Array.isArray(value)) {
-        const tags = value.filter(
-          (tag) => !["Page", "Asset"].includes(String(tag)),
-        );
-        return tags.length ? [["Tags", tags.join(", ")]] : [];
+        return [];
       }
+      if (/^:?(?:logseq\.property\/tags|tags)$/i.test(key)) return [];
       return /^:?(logseq\.|block\/)/.test(key) ? [] : [[key, value]];
     },
+  );
+}
+function textWithTags(node: Node): string {
+  const plain = node.text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1");
+  const tags = Object.entries(node.properties)
+    .filter(([key]) =>
+      /^:?(?:block\/tags|logseq\.property\/tags|tags)$/i.test(key),
+    )
+    .flatMap(([, value]) => (Array.isArray(value) ? value : [value]));
+  const additions = [
+    ...new Set(tags.filter((tag): tag is string => typeof tag === "string")),
+  ]
+    .filter((tag) => !["Page", "Asset", "Tag"].includes(tag))
+    .map((tag) => (tag.includes(" ") ? `#[[${tag}]]` : `#${tag}`))
+    .filter(
+      (tag) =>
+        !new RegExp(
+          `${tag.replace(/\[\[|\]\]/g, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+        ).test(plain),
+    );
+  return [node.text, ...additions].filter(Boolean).join(" ");
+}
+function isCycle(node: Node): boolean {
+  return (
+    node.kind === "notice" &&
+    /^Circular (page|block) reference:/.test(node.text)
   );
 }
 function propertyHtml(node: Node, options: Options) {
@@ -78,26 +104,31 @@ export function body(
 ): string {
   const used = new Set<string>();
   function render(node: Node, level: number): string {
+    if (isCycle(node)) return "";
     const id =
       node.uuid && !used.has(node.uuid) ? ` id="b-${escape(node.uuid)}"` : "";
     used.add(node.uuid);
     if (node.ordered) {
-      const parts = node.ordered.map((part) =>
+      const parts = node.ordered.map((part, i) =>
         typeof part === "number"
           ? `<div class="children">${render(node.children[part], level + 1)}</div>`
-          : inline(part, options),
+          : inline(
+              part +
+                (i === 0 ? textWithTags(node).slice(node.text.length) : ""),
+              options,
+            ),
       );
       if (interactive)
         return `<details${id}${node.collapsed ? "" : " open"}><summary>${parts[0] || escape(node.text)}</summary>${parts.slice(1).join("")}${propertyHtml(node, options)}</details>`;
       return `<div class="block"${id} data-outline-level="${Math.min(level + 1, 8)}">${parts.join("")}${propertyHtml(node, options)}</div>`;
     }
-    const title = inline(node.text, options),
+    const title = inline(textWithTags(node), options),
       props = propertyHtml(node, options);
     const kids = node.children.map((n) => render(n, level + 1)).join("");
     if (node.embedded)
-      return `<div class="embedded"${id}><p class="embed-title">&#8594; ${escape(node.text)}</p><div class="children">${kids}</div></div>`;
+      return `<div class="embedded"${id}><p class="embed-title">&#8594; ${escape(textWithTags(node))}</p><div class="children">${kids}</div></div>`;
     if (node.kind === "page")
-      return `<section${id}>${level === 0 && data.nodes.length === 1 && node.text === data.title ? "" : `<h2>${escape(node.text)}</h2>`}${props}${kids}</section>`;
+      return `<section${id}>${level === 0 && data.nodes.length === 1 && node.text === data.title ? "" : `<h2>${escape(node.text)}</h2>`}${textWithTags(node) !== node.text ? `<p>${escape(textWithTags({ ...node, text: "" }))}</p>` : ""}${props}${kids}</section>`;
     if (interactive && node.children.length)
       return `<details${id}${node.collapsed ? "" : " open"}><summary>${title}</summary>${props}<div class="children">${kids}</div></details>`;
     return `<div class="block${/<table[ >]/.test(title) ? " table-block" : ""}${node.kind === "notice" ? " notice" : ""}"${id}${node.children.length ? ` data-outline-level="${Math.min(level + 1, 8)}"` : ""}>${title ? `<div class="block-title">${title}</div>` : '<p class="empty-block">&nbsp;</p>'}${props}${kids ? `<div class="children">${kids}</div>` : ""}</div>`;
@@ -128,6 +159,7 @@ export function htmlDocument(data: DocumentData, options: Options): string {
 }
 export function markdown(data: DocumentData, options: Options): string {
   function render(n: Node, depth: number): string {
+    if (isCycle(n)) return "";
     const indent = "  ".repeat(depth);
     const props = options.properties
       ? visibleProperties(n)
@@ -143,15 +175,15 @@ export function markdown(data: DocumentData, options: Options): string {
           .map((part, i) =>
             typeof part === "number"
               ? render(n.children[part], depth + 1)
-              : `${indent}${i === 0 ? "- " : "  "}${part.replace(/\n/g, `\n${indent}  `)}\n`,
+              : `${indent}${i === 0 ? "- " : "  "}${(part + (i === 0 ? textWithTags(n).slice(n.text.length) : "")).replace(/\n/g, `\n${indent}  `)}\n`,
           )
           .join("") + props
       );
     if (n.embedded)
-      return `${indent}- \u2192 ${n.text}\n\n${n.children.map((c) => render(c, depth + 1)).join("")}`;
+      return `${indent}- \u2192 ${textWithTags(n)}\n\n${n.children.map((c) => render(c, depth + 1)).join("")}`;
     if (n.kind === "page")
-      return `${depth === 0 && data.nodes.length === 1 && n.text === data.title ? "" : `\n## ${n.text}\n\n`}${props}${n.children.map((c) => render(c, depth)).join("")}`;
-    return `${indent}- ${n.text.replace(/\n/g, `\n${indent}  `)}\n\n${props}${n.children.map((c) => render(c, depth + 1)).join("")}`;
+      return `${depth === 0 && data.nodes.length === 1 && n.text === data.title ? "" : `\n## ${n.text}\n\n`}${textWithTags(n) !== n.text ? `${textWithTags({ ...n, text: "" })}\n\n` : ""}${props}${n.children.map((c) => render(c, depth)).join("")}`;
+    return `${indent}- ${textWithTags(n).replace(/\n/g, `\n${indent}  `)}\n\n${props}${n.children.map((c) => render(c, depth + 1)).join("")}`;
   }
   return `# ${data.title}\n\n${data.nodes.map((n) => render(n, 0)).join("")}`;
 }

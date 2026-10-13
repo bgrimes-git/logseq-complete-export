@@ -43,7 +43,7 @@ export interface QueryProvider {
 }
 export const defaults: Options = {
   expandRefs: true,
-  expandPages: true,
+  expandPages: false,
   properties: true,
   margins: [0.35, 0.35, 0.35, 0.35],
   darken: 25,
@@ -119,6 +119,55 @@ export class Resolver {
       kind: "notice",
     };
   }
+  private async normalizeProperties(
+    properties: any,
+  ): Promise<Record<string, unknown>> {
+    const result = { ...(properties ?? {}) };
+    for (const key of Object.keys(result)) {
+      if (!/^:?(?:block\/tags|logseq\.property\/tags|tags)$/i.test(key))
+        continue;
+      const values = Array.isArray(result[key]) ? result[key] : [result[key]];
+      const names: string[] = [];
+      for (const value of values) {
+        let name =
+          typeof value === "object" && value !== null
+            ? (value.title ??
+              value["block/title"] ??
+              value[":block/title"] ??
+              value.originalName ??
+              value.name)
+            : undefined;
+        const id =
+          typeof value === "object" && value !== null
+            ? (value.uuid ?? value.id ?? value["db/id"])
+            : value;
+        if (
+          !name &&
+          (typeof id === "number" ||
+            (typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)))
+        ) {
+          try {
+            const entity =
+              (await this.api.getPage(id)) ?? (await this.fetch(id));
+            if (entity) name = textOf(entity);
+          } catch {
+            this.warn("A tag label could not be resolved.");
+          }
+        } else if (!name && typeof value === "string") name = value;
+        if (
+          name &&
+          !["Page", "Asset", "Tag"].includes(name) &&
+          !names.includes(name)
+        )
+          names.push(name);
+      }
+      delete result[key];
+      result[":block/tags"] = [
+        ...new Set([...(result[":block/tags"] ?? []), ...names]),
+      ];
+    }
+    return result;
+  }
   async page(id: any, path = new Set<string>()): Promise<Node> {
     const identity = pageIdentity(id);
     const page = await this.api.getPage(identity);
@@ -135,16 +184,15 @@ export class Resolver {
     if (!blocks) throw new Error(`Could not read page: ${textOf(page)}`);
     const children: Node[] = [];
     for (const block of blocks) children.push(await this.block(block, next));
-    const properties =
-      this.options.properties && this.api.getPageProperties
-        ? await this.api.getPageProperties(resolvedIdentity)
-        : page.properties;
+    const properties = this.api.getPageProperties
+      ? await this.api.getPageProperties(resolvedIdentity)
+      : page.properties;
     return {
       uuid: key,
       text: textOf(page),
       children,
       collapsed: false,
-      properties: properties ?? {},
+      properties: await this.normalizeProperties(properties),
       kind: "page",
     };
   }
@@ -269,6 +317,7 @@ export class Resolver {
     for (const match of text.matchAll(pattern)) {
       result += text.slice(last, match.index);
       const [, embedBlock, embedPage, refBlock, refPage] = match;
+      const isTag = !!refPage && text[match.index! - 1] === "#";
       if (!embedBlock && !embedPage && !refBlock && !refPage) {
         result += match[0];
         last = match.index! + match[0].length;
@@ -299,10 +348,11 @@ export class Resolver {
         const dest = entity.uuid ?? target;
         result += `[${label.replace(/[\[\]]/g, "") || target}](logseq://graph/${encodeURIComponent(this.graph)}?block-id=${encodeURIComponent(dest)})`;
         if (
-          embedBlock ||
-          embedPage ||
-          (!isPage && this.options.expandRefs) ||
-          (isPage && this.options.expandPages)
+          !isTag &&
+          (embedBlock ||
+            embedPage ||
+            (!isPage && this.options.expandRefs) ||
+            (isPage && this.options.expandPages))
         ) {
           ordered.push(result.slice(segmentStart), nested.length);
           segmentStart = result.length;
@@ -379,7 +429,7 @@ export class Resolver {
         ? { query: { source: query.source, results: query.results } }
         : {}),
       collapsed: !!(b["collapsed?"] ?? b.collapsed),
-      properties: properties ?? {},
+      properties: await this.normalizeProperties(properties),
       kind: "block",
     };
   }

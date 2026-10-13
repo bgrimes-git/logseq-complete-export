@@ -164,7 +164,9 @@ test("branch labels preserve inline embeds and circular page notices in every fo
     if (["html", "markdown", "json"].includes(format)) {
       const text = await result.text();
       assert.match(text, /Embedded detail/);
-      assert.match(text, /Circular page reference: Workshop/);
+      if (format === "json")
+        assert.match(text, /Circular page reference: Workshop/);
+      else assert.doesNotMatch(text, /Circular page reference: Workshop/);
     }
   }
 });
@@ -242,6 +244,63 @@ test("PDF creates a valid text-based document", async () => {
     "PDF title must begin at the 0.35-inch left margin",
   );
   await loading.destroy();
+});
+
+test("tags are inline and deduplicated instead of stacked metadata", async () => {
+  const { Resolver } = await import("../src/model");
+  const resolver = new Resolver(
+    {
+      getBlock: async () => null,
+      getPage: async () => null,
+      getPageBlocksTree: async () => [],
+      getBlockProperties: async () => ({
+        Tags: [{ title: "Workshop" }, { name: "Planning" }, { title: "Tag" }],
+      }),
+    },
+    defaults,
+  );
+  const node = await resolver.block({
+    uuid: "tagged",
+    title: "Notes #Workshop",
+  });
+  const data = { ...sample, nodes: [node] };
+  const html = htmlDocument(data, defaults);
+  assert.match(html, /Notes #Workshop #Planning/);
+  assert.doesNotMatch(html, /Tags:|\[object Object\]|#Tag\b/);
+  assert.equal(html.match(/#Workshop/g)?.length, 1);
+  for (const format of ["docx", "pdf", "markdown"] as const) {
+    let output: Blob | undefined;
+    await exportFile(
+      data,
+      defaults,
+      format,
+      (s) => s,
+      (blob) => {
+        output = blob;
+      },
+    );
+    let text: string;
+    if (format === "docx")
+      text = strFromU8(
+        unzipSync(new Uint8Array(await output!.arrayBuffer()))[
+          "word/document.xml"
+        ],
+      );
+    else if (format === "pdf") {
+      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const job = getDocument({
+        data: new Uint8Array(await output!.arrayBuffer()),
+      });
+      const pdf = await job.promise;
+      text = (await (await pdf.getPage(1)).getTextContent()).items
+        .map((item: any) => item.str ?? "")
+        .join(" ");
+      await job.destroy();
+    } else text = await output!.text();
+    assert.match(text, /#Workshop/);
+    assert.match(text, /#Planning/);
+    assert.doesNotMatch(text, /Tags:|\[object Object\]/);
+  }
 });
 test("Markdown and JSON retain nested content and UUID metadata", async () => {
   for (const format of ["markdown", "json"] as const) {

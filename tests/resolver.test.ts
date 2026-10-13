@@ -102,6 +102,55 @@ test("accent darkening has stable endpoints", () => {
   assert.equal(darken("#abcdef", 0), "#abcdef");
   assert.equal(darken("#ffffff", 100), "#000000");
 });
+
+test("ordinary page links stay links while explicit embeds still expand", async () => {
+  const page = {
+    uuid: "supplies",
+    name: "supplies",
+    title: "Supplies",
+    children: [{ uuid: "item", title: "Embedded supplies" }],
+  };
+  const resolver = new Resolver(
+    api({}, { Supplies: page, supplies: page }),
+    defaults,
+  );
+  const ordinary = await resolver.block({
+    uuid: "ordinary",
+    title: "See [[Supplies]]",
+  });
+  assert.equal(ordinary.children.length, 0);
+  assert.match(ordinary.text, /Supplies/);
+  const embedded = await resolver.block({
+    uuid: "embed",
+    title: "{{embed [[Supplies]]}}",
+  });
+  assert.equal(embedded.children[0].children[0].text, "Embedded supplies");
+  const tag = await new Resolver(api({}, { Supplies: page, supplies: page }), {
+    ...defaults,
+    expandPages: true,
+  }).block({ uuid: "tagged", title: "#[[Supplies]]" });
+  assert.equal(tag.children.length, 0);
+});
+
+test("tag properties resolve labels without exporting tag page contents", async () => {
+  const resolver = new Resolver(
+    {
+      ...api({}),
+      getPage: async () => ({ id: 42, title: "Planning", name: "planning" }),
+      getBlockProperties: async () => ({
+        ":block/tags": [{ id: 42 }, { title: "Workshop" }, "Page", "Tag"],
+        status: "Ready",
+      }),
+    },
+    defaults,
+  );
+  const node = await resolver.block({
+    uuid: "tagged",
+    title: "Notes #Workshop",
+  });
+  assert.deepEqual(node.properties[":block/tags"], ["Planning", "Workshop"]);
+  assert.equal(node.children.length, 0);
+});
 test("query results hydrate entities and include nested embeds without duplicating self", async () => {
   const blocks = {
     hit: { uuid: "hit", title: "Result {{embed ((nested))}}" },
@@ -204,7 +253,7 @@ test("page references without UUIDs use scalar IDs or names without false cycles
           ? [{ uuid: "link", title: "[[Supplies]]" }]
           : [{ uuid: "supply", title: "Paper" }],
     },
-    defaults,
+    { ...defaults, expandPages: true },
   );
   const node = await resolver.page(root);
   assert.equal(node.uuid, "workshop");

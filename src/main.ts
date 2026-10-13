@@ -209,7 +209,10 @@ async function run(preview: boolean) {
     options = readOptions();
     if (options.margins.some((n) => !Number.isFinite(n) || n < 0 || n > 2))
       throw new Error("Margins must be between 0 and 2 inches.");
-    logseq.updateSettings({ exportOptions: options });
+    logseq.updateSettings({
+      exportOptions: options,
+      referenceDefaultsVersion: 1,
+    });
     status("Resolving content...");
     document.getElementById("warnings")!.innerHTML = "";
     const previousPreview = document.getElementById(
@@ -273,6 +276,8 @@ logseq
   .ready(() => {
     const saved = logseq.settings?.exportOptions;
     if (saved && typeof saved === "object") options = { ...defaults, ...saved };
+    if (logseq.settings?.referenceDefaultsVersion !== 1)
+      options.expandPages = false;
     logseq.setMainUIInlineStyle({
       position: "fixed",
       top: "4vh",
