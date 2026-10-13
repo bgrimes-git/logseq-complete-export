@@ -22,6 +22,7 @@ import pdfMake from "pdfmake/build/pdfmake";
 import fonts from "pdfmake/build/vfs_fonts";
 import htmlToPdfmake from "html-to-pdfmake";
 import { body, htmlDocument, markdown } from "./render";
+import { outlineStep, tableWidths } from "./layout";
 import { cleanText, type DocumentData, type Options } from "./model";
 import {
   prepareExport,
@@ -160,6 +161,7 @@ function docxContent(
   indent = 0,
   available = 11232,
   bullet = false,
+  step = 180,
 ): (Paragraph | Table)[] {
   const output: (Paragraph | Table)[] = [];
   for (const el of Array.from(root.children) as HTMLElement[]) {
@@ -217,7 +219,7 @@ function docxContent(
     if (tag === "TABLE") {
       const tableIndent =
         indent + (root.classList.contains("block-title") || bullet ? 180 : 0);
-      const count = el.querySelector("tr")?.children.length || 1;
+      const widths = tableWidths(el);
       output.push(
         new Table({
           width: { size: available - tableIndent, type: WidthType.DXA },
@@ -236,15 +238,9 @@ function docxContent(
               { style: BorderStyle.SINGLE, size: 4, color: "B8B8B8" },
             ]),
           ),
-          columnWidths:
-            count === 2
-              ? [
-                  Math.round((available - tableIndent) * 0.22),
-                  Math.round((available - tableIndent) * 0.78),
-                ]
-              : Array(count).fill(
-                  Math.floor((available - tableIndent) / count),
-                ),
+          columnWidths: widths.map((width) =>
+            Math.round(((available - tableIndent) * width) / 100),
+          ),
           rows: Array.from(el.querySelectorAll("tr")).map(
             (row) =>
               new TableRow({
@@ -252,8 +248,7 @@ function docxContent(
                   (cell, index) =>
                     new TableCell({
                       width: {
-                        size:
-                          count === 2 ? (index === 0 ? 22 : 78) : 100 / count,
+                        size: widths[index],
                         type: WidthType.PERCENTAGE,
                       },
                       margins: { top: 90, bottom: 90, left: 90, right: 90 },
@@ -284,19 +279,18 @@ function docxContent(
       );
     } else if (["DIV", "SECTION", "UL", "OL", "FIGURE"].includes(tag)) {
       if (el.classList.contains("block-title")) {
-        output.push(...docxContent(el, indent, available));
+        output.push(...docxContent(el, indent, available, false, step));
         continue;
       }
       if (el.id && el.firstElementChild) el.firstElementChild.id ||= el.id;
       output.push(
         ...docxContent(
           el,
-          el.classList.contains("children")
-            ? Math.min(indent + 180, 720)
-            : indent,
+          el.classList.contains("children") ? indent + step : indent,
           available,
           el.tagName === "FIGURE" &&
             (root.classList.contains("block-title") || bullet),
+          step,
         ),
       );
     } else {
@@ -557,6 +551,12 @@ export async function exportFile(
             0,
             (options.paper === "A4" ? 11906 : 12240) -
               Math.round((left + right) * 1440),
+            false,
+            outlineStep(
+              content,
+              (options.paper === "A4" ? 595.3 : 612) - (left + right) * 72,
+              9,
+            ) * 20,
           ),
         },
       ],
@@ -567,9 +567,8 @@ export async function exportFile(
   } else {
     preparePdfAnchors(content);
     for (const table of content.querySelectorAll<HTMLElement>("table")) {
-      const count = table.querySelector("tr")?.children.length || 1;
       table.dataset.pdfmake = JSON.stringify({
-        widths: count === 2 ? ["22%", "78%"] : Array(count).fill("*"),
+        widths: tableWidths(table).map((width) => `${width}%`),
         margin: [0, 0, 0, 0],
       });
       for (const cell of table.querySelectorAll<HTMLElement>("td,th")) {
@@ -660,15 +659,17 @@ export async function exportFile(
         },
       });
     // Convert leaf blocks separately so inherited list margins cannot accumulate around tables.
+    const step = outlineStep(
+      content,
+      (options.paper === "A4" ? 595.3 : 612) - (left + right) * 72,
+    );
     function pdfContent(root: HTMLElement, indent = 0, bullet = false): any[] {
       const result: any[] = [];
       for (const el of Array.from(root.children) as HTMLElement[]) {
         if (["DIV", "SECTION", "FIGURE"].includes(el.tagName)) {
           const nested = pdfContent(
             el,
-            el.classList.contains("children")
-              ? Math.min(indent + 15, 60)
-              : indent,
+            el.classList.contains("children") ? indent + step : indent,
             el.classList.contains("block-title") ||
               (bullet && el.tagName === "FIGURE"),
           );

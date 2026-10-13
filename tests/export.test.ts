@@ -69,7 +69,7 @@ test("Synthetic collection has an embed heading, readable table and no system me
   const html = htmlDocument(data, data.options);
   assert.match(html, /\u2192 Workshop planning/);
   assert.doesNotMatch(html, /:block\/tags|checksum|logseq.property.asset/);
-  assert.match(html, /width:22%/);
+  assert.match(html, /<colgroup><col style="width:/);
   await writeFile(
     new URL("../test-results/collection.html", import.meta.url),
     html,

@@ -2,6 +2,7 @@ import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import { createElement, Pin } from "lucide";
 import { tableSource } from "./table-source";
+import { applyTableWidths, outlineStep } from "./layout";
 import {
   darken,
   escape,
@@ -231,6 +232,13 @@ export function body(
   let result = `<h1>${escape(data.title)}</h1>${data.nodes.map((n) => render(n, 0)).join("")}`;
   const root = document.createElement("div");
   root.innerHTML = result;
+  applyTableWidths(root);
+  const width =
+    (options.paper === "LETTER" ? 612 : 595.3) -
+    (options.margins[0] + options.margins[2]) * 72;
+  const step = outlineStep(root, width);
+  for (const child of root.querySelectorAll<HTMLElement>(".children"))
+    child.style.paddingLeft = `${step}pt`;
   for (const a of root.querySelectorAll<HTMLAnchorElement>(
     'a[href^="logseq://"]',
   )) {
@@ -247,9 +255,8 @@ export function htmlDocument(data: DocumentData, options: Options): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(data.title)}</title><style>
   @page{size:${options.paper === "LETTER" ? "letter" : "A4"};margin:${top}in ${right}in ${bottom}in ${left}in}
   *{box-sizing:border-box}html,body{background:#fff;color:#000;font:11pt/1.5 Arial,sans-serif;letter-spacing:0}body{margin:0;padding:${top}in ${right}in ${bottom}in ${left}in}h1{font-size:22pt}h2{font-size:16pt}p{margin:0 0 6pt}section{margin-top:14pt}.block,details{margin:5pt 0;overflow-wrap:anywhere}.children{padding-left:12pt;border-left:1px solid #ddd}summary{cursor:pointer}summary p{display:inline}img{max-width:100%;height:auto}pre{white-space:pre-wrap;background:#f3f4f5;padding:8pt}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #bbb;padding:4pt}dl{font-size:9pt;display:grid;grid-template-columns:max-content 1fr;gap:2pt 8pt}dd{margin:0}.notice{color:#8a230d}a{color:${darken(options.accent, options.darken)}}@media print{body{padding:0}details:not([open])>.children{display:block}summary{list-style:none}a{color:inherit}}
-  .children .children .children .children .children{padding-left:0;border-left:0}
-  h1{margin:0 0 20pt}section{margin-top:0}h2{margin:10pt 0}p{margin:0}dl:empty{display:none}.children{border:0;padding-left:15pt}.block,details{margin:4pt 0}.block-title{position:relative;padding-left:10pt}.block-title:before{content:'\u2022';position:absolute;left:0;color:#777}summary{list-style:none;position:relative;padding-left:10pt}summary:before{content:'\u2022';position:absolute;left:0;color:#777}summary::marker{content:''}summary::-webkit-details-marker{display:none}details:not([open])>summary:before{content:'\u25b8'}.embed-title{margin:0 0 6pt}.embedded{margin:6pt 0}table{width:100%;table-layout:fixed}th:first-child,td:first-child{width:22%}th,td{padding:5pt;text-align:left;vertical-align:middle;overflow-wrap:break-word}th{background:#f2f2f2}img{display:block;max-width:100%;height:auto}.empty-block{height:12pt}
-  h1{margin-bottom:30pt}.table-block{margin:10pt 0}figure{margin:0}figcaption{font-size:9pt;color:#555;margin-top:3pt}th{text-align:center}.block:last-child>.empty-block{display:none}.pinned-icon{display:inline-block;width:12pt;height:12pt;vertical-align:middle}
+  h1{margin:0 0 20pt}section{margin-top:0}h2{margin:10pt 0}p{margin:0}dl:empty{display:none}.children{border:0;padding-left:15pt}.block,details{margin:4pt 0}.block-title{position:relative;padding-left:10pt}.block-title:before{content:'\u2022';position:absolute;left:0;color:#777}summary{list-style:none;position:relative;padding-left:10pt}summary:before{content:'\u2022';position:absolute;left:0;color:#777}summary::marker{content:''}summary::-webkit-details-marker{display:none}details:not([open])>summary:before{content:'\u25b8'}.embed-title{margin:0 0 6pt}.embedded{margin:6pt 0}table{width:100%;table-layout:fixed}th,td{padding:5pt;text-align:left;vertical-align:middle;overflow-wrap:break-word}th{background:#f2f2f2}img{display:block;max-width:100%;height:auto}.empty-block{height:12pt}
+  h1{margin-bottom:30pt}.table-block{margin:10pt 0}figure{margin:0}figcaption{font-size:9pt;color:#555;margin-top:3pt}th{text-align:center}.block:last-child>.empty-block{display:none}.pinned-icon{display:inline-block;width:12pt;height:12pt;vertical-align:middle}th:first-child,td:first-child{width:auto}
   </style></head><body>${body(data, options)}<script>document.addEventListener('click',function(e){const a=e.target.closest('a[href^="#b-"]');if(!a)return;const n=document.getElementById(a.hash.slice(1));if(n){let p=n;while(p){if(p.tagName==='DETAILS')p.open=true;p=p.parentElement;}n.scrollIntoView();}});</script></body></html>`;
 }
 export function markdown(data: DocumentData, options: Options): string {

@@ -657,6 +657,84 @@ test("separator-free six-column tables export as real tables", async ({
   }
 });
 
+test("deep embedded outlines keep indenting and narrow columns share less width", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    let nested: any = {
+      id: 80,
+      uuid: "deep-table",
+      title:
+        "| ID | State | Notes |\n| 1 | Ready | A longer explanation of the next steps for the team. |",
+      children: [],
+    };
+    for (let i = 8; i >= 1; i--)
+      nested = {
+        id: 60 + i,
+        uuid: `layer-${i}`,
+        title: `Tier ${i}`,
+        children: [nested],
+      };
+    ls.Editor.getBlock = async () => nested;
+    ls.Editor.getPageBlocksTree = async () => [
+      { id: 50, uuid: "outline-wrapper", title: "", children: [] },
+    ];
+    const oldQuery = ls.DB.datascriptQuery;
+    ls.DB.datascriptQuery = async (q: string) =>
+      q.includes(":find ?b ?target") ? [[50, 60]] : oldQuery(q);
+  });
+  await page.locator("#preview").click();
+  const frame = page.frameLocator("#previewFrame");
+  let previous = -1;
+  for (let i = 2; i <= 8; i++) {
+    const bounds = await frame.locator(`#b-layer-${i} > summary`).boundingBox();
+    expect(bounds!.x).toBeGreaterThan(previous);
+    previous = bounds!.x;
+  }
+  const widths = await frame
+    .locator("col")
+    .evaluateAll((elements) =>
+      elements.map((el) => parseFloat((el as HTMLElement).style.width)),
+    );
+  expect(widths[0]).toBeLessThan(widths[2] / 3);
+  await mkdir("qa-results/deep-outline", { recursive: true });
+  for (const format of ["docx", "pdf", "html"]) {
+    await page.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await file.saveAs(`qa-results/deep-outline/Outline.${format}`);
+    const bytes = await readFile((await file.path())!);
+    if (format === "docx") {
+      const xml = strFromU8(unzipSync(bytes)["word/document.xml"]);
+      let previousIndent = -1;
+      for (let i = 2; i <= 8; i++) {
+        const paragraph = xml
+          .match(/<w:p[ >][\s\S]*?<\/w:p>/g)!
+          .find((p) => p.includes(`Tier ${i}`))!;
+        const indent = Number(paragraph.match(/w:left="(\d+)"/)![1]);
+        expect(indent).toBeGreaterThan(previousIndent);
+        previousIndent = indent;
+      }
+    }
+    if (format === "pdf") {
+      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const loading = getDocument({ data: new Uint8Array(bytes) });
+      const pdf = await loading.promise;
+      const text = await (await pdf.getPage(1)).getTextContent();
+      let x = -1;
+      for (let i = 2; i <= 8; i++) {
+        const item: any = text.items.find((t: any) => t.str === `Tier ${i}`);
+        expect(item.transform[4]).toBeGreaterThan(x);
+        x = item.transform[4];
+      }
+      await loading.destroy();
+    }
+    await expect(page.locator("#status")).toHaveText("Export created.");
+  }
+});
+
 test("rich synthetic exports are readable and safely packaged in all five formats", async ({
   page,
 }) => {

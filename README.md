@@ -34,6 +34,8 @@ Settings persist across sessions. Default document margins are 0.35 inches on ea
 
 ## Format Behavior
 
+Outline indentation continues through embedded branches instead of flattening deeper levels. Exceptionally deep outlines use a smaller uniform indentation step to fit the page. Table columns share space according to their headers and contents, so short ID/status columns are narrower than long-text columns. These proportions are calculated for export rather than copying exact pixel widths from Logseq.
+
 Pinned containers (`#+BEGIN_PINNED` / `#+END_PINNED`) render with a pin icon and separator in preview, DOCX, PDF and HTML; Markdown uses a pin symbol. Table cells may contain `<br>` and balanced multiline `<p>` elements. Theme-defined `<mark>` backgrounds are sampled alongside span colors and retained as text highlights in preview, DOCX, PDF and HTML. JSON keeps the resolved source text rather than converting its markup.
 
 The export panel's **Integration details** show plugin version, embed child counts, and color-helper status without note text, page names, UUIDs or class names. These details stay in the panel and are not added to exported documents.
