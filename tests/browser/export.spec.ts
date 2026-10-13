@@ -182,6 +182,94 @@ test("toolbar icon stays centered within the host button", async ({ page }) => {
     bottom: 5,
   });
 });
+
+test("rich synthetic exports are readable and safely packaged in all five formats", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    const canvas = document.createElement("canvas");
+    canvas.width = 300;
+    canvas.height = 160;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#d6f1e4";
+    ctx.fillRect(0, 0, 300, 160);
+    ctx.fillStyle = "#27634c";
+    ctx.fillRect(20, 90, 70, 50);
+    ctx.fillStyle = "#b44444";
+    ctx.fillRect(110, 60, 70, 80);
+    ctx.fillStyle = "#181b20";
+    ctx.font = "18px Arial";
+    ctx.fillText("Synthetic image", 20, 30);
+    const picture = canvas.toDataURL("image/png");
+    const blocks = [
+      {
+        id: 101,
+        uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        title:
+          "Imported\u0001 notes with [[cccccccc-cccc-cccc-cccc-cccccccccccc]] and [a website](https://example.com)",
+        children: [],
+      },
+      {
+        id: 102,
+        uuid: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        title:
+          "| Item | Detail |\n| --- | --- |\n| Paper | Several sheets |\n| Tools | A shared set |",
+        children: [],
+      },
+      {
+        id: 103,
+        uuid: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        title: "Referenced detail #Workshop",
+        children: [],
+      },
+      {
+        id: 104,
+        uuid: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        title: `<figure><img src="${picture}" width="250" alt="Synthetic image"><figcaption>Synthetic image</figcaption></figure>`,
+        children: [],
+      },
+      {
+        id: 105,
+        uuid: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        title: `<img src="${picture}" width="-200" alt="Another synthetic image">`,
+        children: [],
+      },
+    ];
+    const oldPage = ls.Editor.getPage;
+    ls.Editor.getPage = async (id: any) =>
+      blocks.find((b) => b.uuid === id || b.id === id) ?? oldPage(id);
+    ls.Editor.getBlock = async (id: any) =>
+      blocks.find((b) => b.uuid === id || b.id === id);
+    ls.Editor.getPageBlocksTree = async () => blocks;
+    ls.Editor.getBlockProperties = async () => ({
+      ":block/tags": ["Workshop"],
+    });
+  });
+  await mkdir("qa-results/safety", { recursive: true });
+  for (const format of ["docx", "pdf", "html", "markdown", "json"]) {
+    const extension = format === "markdown" ? "md" : format;
+    await page.locator("#format").selectOption(format);
+    const download = page.waitForEvent("download", {
+      predicate: (d) => d.suggestedFilename().endsWith(`.${extension}`),
+    });
+    await page.locator("#export").click();
+    const file = await download;
+    await file.saveAs(`qa-results/safety/Export.${extension}`);
+    await expect(page.locator("#status")).toHaveText(
+      "Export created with notices.",
+    );
+    await expect(page.locator("#warnings")).not.toContainText(
+      "Image could not be embedded",
+    );
+    if (["html", "markdown", "json"].includes(format)) {
+      const output = await readFile((await file.path())!, "utf8");
+      expect(output).toContain("Referenced detail");
+      expect(output).not.toContain("\u0001");
+      if (format !== "json") expect(output).toContain("data:image/png;base64,");
+    }
+  }
+});
 test("hidden DB linked node preserves its title and outline in preview", async ({
   page,
 }) => {
@@ -239,6 +327,46 @@ test("DB image decodes in detached preview and downloaded HTML", async ({
   expect(markdown).toContain("data:image/png;base64,");
   expect(markdown).toContain("<figcaption>Picture</figcaption>");
   expect(markdown).not.toContain("../assets/");
+});
+
+test("oversized image headers are rejected before decoding in document formats", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    const bytes = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=",
+      ),
+      (c) => c.charCodeAt(0),
+    );
+    new DataView(bytes.buffer).setUint32(16, 500000);
+    const src = "data:image/png;base64," + btoa(String.fromCharCode(...bytes));
+    ls.Editor.getPageBlocksTree = async () => [
+      {
+        uuid: "oversized",
+        title: `<img src="${src}" alt="Oversized test image">`,
+        children: [],
+      },
+    ];
+    (window as any).imageDecodes = 0;
+    const decode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      (window as any).imageDecodes++;
+      return decode.call(this);
+    };
+  });
+  for (const format of ["docx", "pdf", "html", "markdown"]) {
+    await page.locator("#format").selectOption(format);
+    const extension = format === "markdown" ? "md" : format;
+    const download = page.waitForEvent("download", {
+      predicate: (d) => d.suggestedFilename().endsWith(`.${extension}`),
+    });
+    await page.locator("#export").click();
+    await download;
+    await expect(page.locator("#warnings")).toContainText("safety limit");
+    expect(await page.evaluate(() => (window as any).imageDecodes)).toBe(0);
+  }
 });
 test("export collection with DB UUID embed and property query in every format", async ({
   page,

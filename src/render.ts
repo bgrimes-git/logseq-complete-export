@@ -3,6 +3,7 @@ import DOMPurify from "dompurify";
 import {
   darken,
   escape,
+  cleanText,
   type DocumentData,
   type Node,
   type Options,
@@ -11,7 +12,7 @@ const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
 const validateLink = md.validateLink.bind(md);
 md.validateLink = (url) => url.startsWith("logseq://") || validateLink(url);
 export function inline(text: string, options: Options): string {
-  const html = DOMPurify.sanitize(md.render(text), {
+  const html = DOMPurify.sanitize(md.render(cleanText(text)), {
     ADD_ATTR: ["style"],
     ALLOWED_URI_REGEXP:
       /^(?:(?:https?|mailto|logseq|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,

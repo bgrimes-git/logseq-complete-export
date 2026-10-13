@@ -12,7 +12,7 @@ async function add(path) {
     );
   }
 }
-for (const path of ["dist", "docs", "README.md", "LICENSE", "THIRD_PARTY.md"])
+for (const path of ["dist", "docs", "licenses", "README.md", "LICENSE", "THIRD_PARTY.md"])
   await add(join(process.cwd(), path));
 const pkg = JSON.parse(await readFile("package.json", "utf8"));
 files["package.json"] = strToU8(JSON.stringify(pkg, null, 2));

@@ -64,8 +64,13 @@ export function pageIdentity(value: any): string | number {
     throw new Error("The page has no usable UUID, ID, or name.");
   return identity;
 }
-export const escape = (s: string) =>
+export const cleanText = (s: string) =>
   s.replace(
+    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu,
+    "",
+  );
+export const escape = (s: string) =>
+  cleanText(s).replace(
     /[&<>"']/g,
     (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { defaults, type DocumentData } from "../src/model";
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 const dom = new JSDOM("<!doctype html><html><body></body></html>");
 Object.assign(globalThis, {
@@ -15,7 +15,7 @@ Object.assign(globalThis, {
 dom.window.HTMLCanvasElement.prototype.getContext = function () {
   return { fillStyle: "#000000" } as any;
 };
-const { exportFile } = await import("../src/export");
+const { exportFile, filename } = await import("../src/export");
 const { htmlDocument, inline } = await import("../src/render");
 test("Synthetic collection has an embed heading, readable table and no system metadata", async () => {
   await mkdir(new URL("../test-results/", import.meta.url), {
@@ -210,6 +210,122 @@ test("DOCX contains expanded content, editable table, links and 0.35-inch margin
   assert.match(
     strFromU8(files["word/_rels/document.xml.rels"]),
     /https:\/\/example.com/,
+  );
+});
+
+test("DOCX text cannot introduce XML-invalid characters into the package", async () => {
+  const data = structuredClone(sample);
+  data.title = "Imported notes";
+  data.nodes[0].text =
+    "Pasted text\u0001 with emoji \ud83d\ude42 and an unpaired surrogate \ud800";
+  let result: Blob | undefined;
+  await exportFile(
+    data,
+    defaults,
+    "docx",
+    (s) => s,
+    (blob) => {
+      result = blob;
+    },
+  );
+  const parts = unzipSync(new Uint8Array(await result!.arrayBuffer()));
+  for (const [name, bytes] of Object.entries(parts)) {
+    if (!/\.(xml|rels)$/.test(name)) continue;
+    const xml = strFromU8(bytes);
+    const parsed = new dom.window.DOMParser().parseFromString(
+      xml,
+      "application/xml",
+    );
+    assert.equal(
+      parsed.querySelector("parsererror"),
+      null,
+      `${name} must be well-formed XML`,
+    );
+  }
+});
+
+test("all formats sanitize hidden control characters and reject invalid page dimensions", async () => {
+  for (const format of ["docx", "pdf", "html", "markdown", "json"] as const) {
+    const data = structuredClone(sample);
+    data.nodes[0].text = "Clean\u0001 text\ud800";
+    let result: Blob | undefined;
+    await exportFile(
+      data,
+      defaults,
+      format,
+      (s) => s,
+      (blob) => {
+        result = blob;
+      },
+    );
+    assert.ok(result?.size);
+    assert.ok(data.warnings.some((w) => w.includes("control characters")));
+    assert.equal(
+      data.nodes[0].text,
+      "Clean\u0001 text\ud800",
+      "The source content must not be modified",
+    );
+    if (["html", "markdown", "json"].includes(format)) {
+      const text = await result!.text();
+      assert.doesNotMatch(text, /\u0001|\\u0001|\ud800|\\ud800/u);
+      assert.match(text, /Clean text/);
+    }
+    let saved = false;
+    await assert.rejects(
+      exportFile(
+        data,
+        { ...defaults, margins: [NaN, 0, 0, 0] },
+        format,
+        (s) => s,
+        () => {
+          saved = true;
+        },
+      ),
+      /Invalid paper size or margins/,
+    );
+    assert.equal(saved, false);
+  }
+});
+
+test("Windows reserved filenames and truncated trailing periods are neutralized", () => {
+  for (const name of ["CON", "nul.txt", "LPT1", "COM\u00b9"])
+    assert.ok(filename(name).startsWith("_"));
+  assert.equal(filename("a".repeat(119) + ".more"), "a".repeat(119));
+  assert.equal(filename("\u202Ename\u0001"), "name");
+});
+
+test("DOCX validates safe bookmarks and refuses malformed XML or missing package relationships", async () => {
+  const { validateDocx } = await import("../src/export-safety");
+  const data = structuredClone(sample);
+  data.nodes[0].uuid = "long-identifier-".repeat(8);
+  data.nodes[0].text += "\n\n[Jump](logseq://graph/Research?block-id=child)";
+  let result: Blob | undefined;
+  await exportFile(
+    data,
+    defaults,
+    "docx",
+    (s) => s,
+    (blob) => {
+      result = blob;
+    },
+  );
+  await validateDocx(result!);
+  const parts = unzipSync(new Uint8Array(await result!.arrayBuffer()));
+  const xml = strFromU8(parts["word/document.xml"]);
+  assert.match(xml, /w:name="ls_b_\d+"/);
+  assert.match(xml, /w:anchor="ls_b_\d+"/);
+  parts["word/document.xml"] = strToU8(
+    xml.replace("Clean", "Clean\u0001") + "\u0001",
+  );
+  await assert.rejects(
+    validateDocx(new Blob([zipSync(parts)])),
+    /malformed XML/,
+  );
+  delete parts["word/styles.xml"];
+  parts["word/document.xml"] = strToU8(xml);
+  await assert.rejects(
+    validateDocx(new Blob([zipSync(parts)])),
+    /missing relationship target/,
   );
 });
 test("PDF creates a valid text-based document", async () => {

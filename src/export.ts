@@ -22,7 +22,13 @@ import pdfMake from "pdfmake/build/pdfmake";
 import fonts from "pdfmake/build/vfs_fonts";
 import htmlToPdfmake from "html-to-pdfmake";
 import { body, htmlDocument, markdown } from "./render";
-import { type DocumentData, type Options } from "./model";
+import { cleanText, type DocumentData, type Options } from "./model";
+import {
+  prepareExport,
+  prepareDocxAnchors,
+  validateDocx,
+} from "./export-safety";
+import { imageSize } from "image-size";
 pdfMake.addVirtualFileSystem(fonts);
 export type Format = "docx" | "pdf" | "html" | "markdown" | "json";
 export function download(blob: Blob, name: string) {
@@ -35,12 +41,29 @@ export function download(blob: Blob, name: string) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
-export const filename = (title: string) =>
-  title
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
-    .replace(/[. ]+$/, "")
-    .slice(0, 120) || "Logseq export";
+export const filename = (title: string) => {
+  let name =
+    cleanText(title)
+      .replace(/[\u202A-\u202E\u2066-\u2069]/g, "")
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+      .slice(0, 120)
+      .replace(/[. ]+$/, "") || "Logseq export";
+  if (
+    /^(CON|PRN|AUX|NUL|COM[1-9\u00b9\u00b2\u00b3]|LPT[1-9\u00b9\u00b2\u00b3])(?:\.|$)/i.test(
+      name,
+    )
+  )
+    name = `_${name}`;
+  return name;
+};
 type Inline = TextRun | ExternalHyperlink | InternalHyperlink | ImageRun;
+function bookmarked(element: HTMLElement, children: Inline[]) {
+  const names: string[] = JSON.parse(element.dataset.docxBookmarks ?? "[]");
+  return [
+    ...names.map((id) => new Bookmark({ id, children: [] })),
+    ...children,
+  ];
+}
 function runs(node: globalThis.Node, marks: any = {}): Inline[] {
   if (node.nodeType === 3)
     return [new TextRun({ text: node.textContent ?? "", ...marks })];
@@ -66,13 +89,17 @@ function runs(node: globalThis.Node, marks: any = {}): Inline[] {
       const data = Uint8Array.from(atob(src.split(",")[1]), (c) =>
         c.charCodeAt(0),
       );
-      const width = Math.min(
+      const requestedWidth = Math.min(
         Number(node.getAttribute("width")) ||
           (node as HTMLImageElement).naturalWidth ||
           Number(node.dataset.width) ||
           400,
         500,
       );
+      const width =
+        Number.isFinite(requestedWidth) && requestedWidth > 0
+          ? requestedWidth
+          : 250;
       const ratio =
         ((node as HTMLImageElement).naturalHeight ||
           Number(node.dataset.height) ||
@@ -84,7 +111,10 @@ function runs(node: globalThis.Node, marks: any = {}): Inline[] {
         new ImageRun({
           data,
           type: src.includes("image/png") ? "png" : "jpg",
-          transformation: { width, height: width * ratio },
+          transformation: {
+            width: width * Math.min(1, 700 / (width * ratio)),
+            height: Math.min(width * ratio, 700),
+          },
         }),
       ];
     }
@@ -95,6 +125,11 @@ function runs(node: globalThis.Node, marks: any = {}): Inline[] {
   const children = Array.from(node.childNodes).flatMap((n) => runs(n, style));
   if (tag === "A") {
     const href = node.getAttribute("href") || "";
+    if (
+      !href ||
+      (!href.startsWith("#") && !/^(https?:|mailto:|logseq:)/i.test(href))
+    )
+      return children;
     // Hyperlink children must be runs; nested links are excluded by Markdown parsing.
     if (href.startsWith("#"))
       return [
@@ -146,9 +181,9 @@ function docxContent(
                   verticalAlign: VerticalAlign.TOP,
                   children: [
                     new Paragraph({
-                      children: [
+                      children: bookmarked(el, [
                         new TextRun({ text: "\u2022", color: "777777" }),
-                      ],
+                      ]),
                       spacing: { before: 0, after: 0 },
                     }),
                   ],
@@ -217,7 +252,7 @@ function docxContent(
                         : {}),
                       children: [
                         new Paragraph({
-                          children: runs(cell),
+                          children: bookmarked(cell as HTMLElement, runs(cell)),
                           spacing: {
                             before: 0,
                             after: 0,
@@ -287,9 +322,7 @@ function docxContent(
           : undefined;
       output.push(
         new Paragraph({
-          children: el.id
-            ? [new Bookmark({ id: el.id, children: children as TextRun[] })]
-            : children,
+          children: bookmarked(el, children),
           heading,
           outlineLevel,
           indent: isBullet
@@ -317,6 +350,7 @@ export async function loadImages(
   data: DocumentData,
   assetUrl: (s: string) => string | Promise<string>,
 ) {
+  let totalBytes = 0;
   for (const img of root.querySelectorAll("img")) {
     const original = img.getAttribute("src") || "";
     try {
@@ -325,6 +359,19 @@ export async function loadImages(
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
+      if (blob.size > 16 * 1024 * 1024)
+        throw new Error("Image exceeds the 16 MiB safety limit.");
+      const dimensions = imageSize(new Uint8Array(await blob.arrayBuffer()));
+      if (
+        !dimensions.width ||
+        !dimensions.height ||
+        dimensions.width > 16384 ||
+        dimensions.height > 16384 ||
+        dimensions.width * dimensions.height > 16_000_000
+      )
+        throw new Error(
+          "Image exceeds the 16-million-pixel safety limit or has invalid dimensions.",
+        );
       const url = URL.createObjectURL(blob);
       try {
         const decoder = document.createElement("img");
@@ -334,7 +381,35 @@ export async function loadImages(
         canvas.width = decoder.naturalWidth;
         canvas.height = decoder.naturalHeight;
         canvas.getContext("2d")!.drawImage(decoder, 0, 0);
-        img.src = canvas.toDataURL("image/png");
+        const encoded = canvas.toDataURL("image/png");
+        if (encoded === "data:," || encoded.length > (16 * 1024 * 1024 * 4) / 3)
+          throw new Error("Normalized image exceeds the 16 MiB safety limit.");
+        totalBytes += (encoded.length * 3) / 4;
+        if (totalBytes > 64 * 1024 * 1024)
+          throw new Error("Embedded images exceed the 64 MiB safety limit.");
+        img.src = encoded;
+        const requested = Number(img.getAttribute("width"));
+        const width =
+          requested > 0 && Number.isFinite(requested)
+            ? Math.min(requested, 500)
+            : Math.min(decoder.naturalWidth, 500);
+        img.setAttribute(
+          "width",
+          String(
+            Math.max(
+              1,
+              Math.round(
+                width *
+                  Math.min(
+                    1,
+                    700 /
+                      ((width * decoder.naturalHeight) / decoder.naturalWidth),
+                  ),
+              ),
+            ),
+          ),
+        );
+        img.removeAttribute("height");
         img.dataset.width = String(decoder.naturalWidth);
         img.dataset.height = String(decoder.naturalHeight);
       } finally {
@@ -357,6 +432,21 @@ export async function exportFile(
   assetUrl: (s: string) => string | Promise<string>,
   save = download,
 ) {
+  if (
+    options.margins.length !== 4 ||
+    options.margins.some((n) => !Number.isFinite(n) || n < 0 || n > 2) ||
+    !["LETTER", "A4"].includes(options.paper)
+  )
+    throw new Error("Invalid paper size or margins. No file was saved.");
+  const writer = save;
+  save = (blob, name) => {
+    if (!blob.size || blob.size > 128 * 1024 * 1024)
+      throw new Error(
+        "Export is empty or exceeds the 128 MiB safety limit. No file was saved.",
+      );
+    writer(blob, name);
+  };
+  data = prepareExport(data);
   const name = filename(data.title);
   if (format === "json") {
     save(
@@ -419,7 +509,10 @@ export async function exportFile(
   }
   const [left, top, right, bottom] = options.margins;
   if (format === "docx") {
+    prepareDocxAnchors(content);
     const doc = new Document({
+      creator: "Complete Export",
+      title: data.title,
       styles: {
         default: {
           document: {
@@ -457,7 +550,9 @@ export async function exportFile(
         },
       ],
     });
-    save(await Packer.toBlob(doc), `${name}.docx`);
+    const blob = await Packer.toBlob(doc);
+    await validateDocx(blob);
+    save(blob, `${name}.docx`);
   } else {
     for (const table of content.querySelectorAll<HTMLElement>("table")) {
       const count = table.querySelector("tr")?.children.length || 1;
