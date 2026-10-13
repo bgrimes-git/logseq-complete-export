@@ -1,6 +1,6 @@
 {
   "name": "logseq-complete-export",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -34,6 +34,7 @@
     "image-size": "^2.0.4",
     "lucide": "^1.52.0",
     "markdown-it": "^14.1.0",
+    "pdf-lib": "^1.17.1",
     "pdfmake": "^0.3.11",
     "scittle": "^0.8.33"
   },

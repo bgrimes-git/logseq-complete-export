@@ -24,6 +24,7 @@ export interface Options {
   darken: number;
   accent: string;
   defaultColor?: string;
+  colorVars?: Record<string, string>;
   paper: "LETTER" | "A4";
 }
 export interface Api {
@@ -35,6 +36,7 @@ export interface Api {
   getLinkedTarget?(id: number | string): Promise<any>;
   getLinkedTitle?(id: number | string): Promise<string | undefined>;
   getAssetWidth?(uuid: string): number | undefined;
+  isPage?(entity: any): boolean;
 }
 export interface QueryProvider {
   run(
@@ -96,6 +98,15 @@ export class Resolver {
   warnings: string[] = [];
   private cache = new Map<string, Promise<any>>();
   private count = 0;
+  private isPage(entity: any): boolean {
+    return (
+      !!this.api.isPage?.(entity) ||
+      typeof entity.name === "string" ||
+      entity.type === "page" ||
+      entity["block/type"] === "page" ||
+      entity[":block/type"] === "page"
+    );
+  }
   constructor(
     private api: Api,
     private options: Options,
@@ -225,19 +236,18 @@ export class Resolver {
       const target = await this.fetch(rawLinked);
       if (!target)
         throw new Error(`Could not read embedded target: ${rawLinked}`);
-      const node =
-        target.name !== undefined
-          ? await this.page(pageIdentity(target), next)
-          : await this.block(target, next, children);
+      const node = this.isPage(target)
+        ? await this.page(pageIdentity(target), next)
+        : await this.block(target, next, children);
       const sourcePage =
-        target.name === undefined && target.page
+        !this.isPage(target) && target.page
           ? await this.api.getPage(pageIdentity(target.page))
           : null;
       const sourceTitle =
         (await this.api.getLinkedTitle?.(b.id ?? key)) ??
         (sourcePage ? textOf(sourcePage) : undefined);
       return {
-        ...(sourceTitle && target.name === undefined
+        ...(sourceTitle && !this.isPage(target)
           ? {
               text: sourceTitle,
               children: [node],
@@ -297,7 +307,7 @@ export class Resolver {
             // Logseq also excludes the query block from its own result set.
             if (entity && String(entity.uuid ?? entity.id) !== key)
               nested.push(
-                entity.name !== undefined
+                this.isPage(entity)
                   ? await this.page(pageIdentity(entity), next)
                   : await this.block(entity, next),
               );
@@ -338,7 +348,7 @@ export class Resolver {
         if (!entity && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(target))
           entity =
             (await this.fetch(target)) ?? (await this.api.getPage(target));
-        if (entity) isPage = entity.name !== undefined;
+        if (entity) isPage = this.isPage(entity);
       } catch (e) {
         this.warn(`Reference failed: ${target}: ${String(e)}`);
       }
@@ -354,15 +364,12 @@ export class Resolver {
         result += `[${label.replace(/[\[\]]/g, "") || target}](logseq://graph/${encodeURIComponent(this.graph)}?block-id=${encodeURIComponent(dest)})`;
         if (
           !isTag &&
-          (embedBlock ||
-            embedPage ||
-            (!isPage && this.options.expandRefs) ||
-            (isPage && this.options.expandPages))
+          (embedBlock || embedPage || (!isPage && this.options.expandRefs))
         ) {
           ordered.push(result.slice(segmentStart), nested.length);
           segmentStart = result.length;
           nested.push(
-            isPage || entity.name !== undefined
+            isPage
               ? await this.page(pageIdentity(entity), next)
               : await this.block(entity, next),
           );
@@ -395,7 +402,7 @@ export class Resolver {
         if (target) {
           if (ordered.length) ordered.push(nested.length);
           nested.push(
-            target.name !== undefined
+            this.isPage(target)
               ? await this.page(pageIdentity(target), next)
               : await this.block(target, next),
           );

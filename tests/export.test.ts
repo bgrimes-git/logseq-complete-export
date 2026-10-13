@@ -13,7 +13,11 @@ Object.assign(globalThis, {
 });
 // Canvas color normalization is the only canvas operation in these text fixtures.
 dom.window.HTMLCanvasElement.prototype.getContext = function () {
-  return { fillStyle: "#000000" } as any;
+  return {
+    fillStyle: "#000000",
+    fillRect() {},
+    getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }),
+  } as any;
 };
 const { exportFile, filename } = await import("../src/export");
 const { htmlDocument, inline } = await import("../src/render");
@@ -360,6 +364,54 @@ test("PDF creates a valid text-based document", async () => {
     "PDF title must begin at the 0.35-inch left margin",
   );
   await loading.destroy();
+});
+
+test("PDF internal links have destinations and malformed links are rejected", async () => {
+  const data = structuredClone(sample);
+  data.nodes[0].text += "\n\n[Jump](logseq://graph/Research?block-id=child)";
+  let output: Blob | undefined;
+  await exportFile(
+    data,
+    defaults,
+    "pdf",
+    (s) => s,
+    (blob) => {
+      output = blob;
+    },
+  );
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = getDocument({
+    data: new Uint8Array(await output!.arrayBuffer()),
+  });
+  const pdf = await task.promise;
+  const destinations = await pdf.getDestinations();
+  const annotations = await (await pdf.getPage(1)).getAnnotations();
+  assert.ok(destinations.size > 0);
+  for (const annotation of annotations)
+    if (typeof annotation.dest === "string")
+      assert.ok(
+        destinations.has(annotation.dest),
+        "Every internal link must resolve",
+      );
+  await task.destroy();
+  const { PDFDocument, PDFName, PDFString } = await import("pdf-lib");
+  const broken = await PDFDocument.create();
+  const page = broken.addPage();
+  const annotation = broken.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: [0, 0, 10, 10],
+    A: { S: "GoTo", D: PDFString.of("missing") },
+  });
+  page.node.set(
+    PDFName.of("Annots"),
+    broken.context.obj([broken.context.register(annotation)]),
+  );
+  const { validatePdf } = await import("../src/pdf-safety");
+  await assert.rejects(
+    validatePdf(new Blob([new Uint8Array(await broken.save())])),
+    /internal link has no destination/,
+  );
 });
 
 test("tags are inline and deduplicated instead of stacked metadata", async () => {

@@ -82,7 +82,7 @@ test("block scope omits original children; embed content still included", async 
   assert.equal(n.children.length, 1);
   assert.equal(n.children[0].text, "Reference");
 });
-test("DB link entities and opt-in ordinary page expansion", async () => {
+test("DB link entities expand but ordinary page links do not", async () => {
   const page = { uuid: "p", title: "Page", name: "page", children: [] };
   const r = new Resolver(api({ p: page }, { Page: page, p: page }), {
     ...defaults,
@@ -94,8 +94,8 @@ test("DB link entities and opt-in ordinary page expansion", async () => {
     "page",
   );
   assert.equal(
-    (await r.block({ uuid: "root", title: "[[Page]]" })).children[0].text,
-    "Page",
+    (await r.block({ uuid: "root", title: "[[Page]]" })).children.length,
+    0,
   );
 });
 test("accent darkening has stable endpoints", () => {
@@ -250,7 +250,7 @@ test("page references without UUIDs use scalar IDs or names without false cycles
       getPage: async (id) => (id === "workshop" ? root : linked),
       getPageBlocksTree: async (id) =>
         id === "workshop"
-          ? [{ uuid: "link", title: "[[Supplies]]" }]
+          ? [{ uuid: "link", title: "{{embed [[Supplies]]}}" }]
           : [{ uuid: "supply", title: "Paper" }],
     },
     { ...defaults, expandPages: true },
@@ -292,6 +292,29 @@ test("DB hidden link restores the embedded title without duplicating flattened c
   assert.equal(n.text, "Workshop planning");
   assert.equal(n.embedded, true);
   assert.equal(n.children.length, 1);
+});
+
+test("whole-page DB embeds without a name field load the full page tree", async () => {
+  const page = { id: 20, uuid: "embedded-page", title: "Embedded workshop" };
+  let treeRead = false;
+  const resolver = new Resolver(
+    {
+      getBlock: async () => page,
+      getPage: async () => page,
+      isPage: (entity) => entity.id === 20,
+      getPageBlocksTree: async (id) => {
+        assert.equal(id, "embedded-page");
+        treeRead = true;
+        return [{ uuid: "inside", title: "Whole page content" }];
+      },
+      getLinkedTarget: async (id) => (id === 10 ? 20 : undefined),
+    },
+    { ...defaults, expandPages: false },
+  );
+  const node = await resolver.block({ id: 10, uuid: "alias", title: "" });
+  assert.equal(treeRead, true);
+  assert.equal(node.embedded, true);
+  assert.equal(node.children[0].text, "Whole page content");
 });
 test("DB asset metadata becomes an image even when properties are disabled", async () => {
   const r = new Resolver(

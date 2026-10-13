@@ -22,7 +22,7 @@ Linked-reference and unlinked-reference panels are not included. References, emb
 4. Adjust content options, paper size, margins, and accent colors as needed.
 5. Click **Preview** to review the resolved content, then **Export** to download the selected format. DOCX and PDF paginate according to the selected paper size.
 
-Explicit page/block embeds and referenced block branches resolve recursively, including collapsed children. Ordinary page links stay inline by default; enable **Include linked pages** only when you want to include those pages' contents. Tags stay inline and never expand their tag pages. Circular-reference warnings appear in the plugin's notices and companion report, not the exported document body. Missing references remain visible so missing content is not silently hidden.
+Explicit page/block embeds and referenced block branches resolve recursively, including collapsed children. Whole-page embeds include the embedded page's contents. Ordinary page links and tags stay inline and do not expand other pages. Circular-reference warnings appear in the plugin's notices and companion report, not the exported document body. Missing references remain visible so missing content is not silently hidden.
 
 ## Query Support
 
@@ -30,7 +30,7 @@ DB query definitions are read directly from `:logseq.property/query` nodes, whic
 
 ## Features
 
-Settings persist across sessions. Default document margins are 0.35 inches on each side. Main text is black and background is white, independent of the theme. Accent colors can be selected and darkened. Explicit inline text colors are retained, except a sampled theme-default color when host DOM access is available; source background and layout styles are removed.
+Settings persist across sessions. Default document margins are 0.35 inches on each side. Main text is black and background is white, independent of the theme. Accent colors can be selected and darkened. Explicit inline span colors are retained, including colors with alpha (composited against white); CSS color variables are resolved through the SDK when available. Inherited theme colors and source background/layout styles are not copied.
 
 ## Format Behavior
 
@@ -69,6 +69,8 @@ For an existing installation, open **Plugins > Installed** and use **Check updat
 Run `npm ci` and `npm run build` in a source checkout, then load the checkout folder using **Load unpacked plugin**. Do not select the `dist` subfolder.
 
 ## Current limits
+
+PDFs use PDF 1.4 for transparency compatibility and are checked for parseable structure, finite page/annotation dimensions, and resolvable internal destinations before download. These checks do not establish the cause of a crash in a particular workstation's PDF preview handler.
 
 DOCX packages are checked for well-formed XML, valid bookmarks, internal links, and package relationships before download. Unsupported control characters are removed consistently across formats, with a notice. Windows device names and filename control characters are neutralized. Images over 16 MiB, 16 million pixels, or 16,384 pixels on either side are not embedded; a notice identifies the omission. Embedded images are limited to 64 MiB per document conversion and downloads to 128 MiB. These checks reduce malformed-file and resource risks, but cannot guarantee that every third-party preview handler will behave correctly.
 

@@ -32,16 +32,32 @@ export function inline(text: string, options: Options): string {
   for (const el of root.querySelectorAll<HTMLElement>("[style]")) {
     const color = el.style.color;
     el.removeAttribute("style");
-    // Preserve explicit accent colors only; geometry/background never comes from the graph.
+    // Explicit colors are intentional; inherited theme colors are not copied.
     if (color) {
       const probe = document.createElement("canvas").getContext("2d")!;
-      probe.fillStyle = color;
-      const normalized = String(probe.fillStyle);
-      if (options.defaultColor) probe.fillStyle = options.defaultColor;
-      const isDefault =
-        !!options.defaultColor && String(probe.fillStyle) === normalized;
-      if (!isDefault && /^#[0-9a-f]{6}$/i.test(normalized))
-        el.style.color = darken(normalized, options.darken);
+      let resolved = color;
+      for (let depth = 0; depth < 8 && resolved.includes("var("); depth++)
+        resolved = resolved.replace(
+          /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]+))?\)/g,
+          (_, key, fallback) => options.colorVars?.[key] || fallback || "",
+        );
+      if (
+        !resolved ||
+        resolved.includes("var(") ||
+        /^(inherit|initial|unset|currentcolor)$/i.test(resolved)
+      )
+        continue;
+      probe.fillStyle = "#ffffff";
+      probe.fillRect(0, 0, 1, 1);
+      probe.fillStyle = resolved;
+      probe.fillRect(0, 0, 1, 1);
+      const channels = probe.getImageData(0, 0, 1, 1).data;
+      const normalized =
+        "#" +
+        Array.from(channels.slice(0, 3))
+          .map((v) => v.toString(16).padStart(2, "0"))
+          .join("");
+      el.style.color = darken(normalized, options.darken);
     }
   }
   for (const a of root.querySelectorAll("a"))

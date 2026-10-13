@@ -5,3 +5,5 @@
 The plugin is distributed under AGPL-3.0-only to match these rule definitions. Dependency packages retain their respective licenses.
 
 Export validation uses `fflate` (MIT), and image header checks use `image-size` (MIT). Their notices are included in `licenses/` and in the installable ZIP.
+
+PDF structure checks use `pdf-lib` and its bundled dependencies (`@pdf-lib/standard-fonts`, `@pdf-lib/upng`, and `pako`). Their license notices are also included in `licenses/`.

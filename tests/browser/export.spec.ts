@@ -159,7 +159,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#export")).toBeVisible();
 });
 test("toolbar icon stays centered within the host button", async ({ page }) => {
-  await expect(page.locator("#pages")).not.toBeChecked();
+  await expect(page.locator("#pages")).toHaveCount(0);
   const dimensions = await page.evaluate(() => {
     const host = document.createElement("div");
     host.style.cssText =
@@ -181,6 +181,94 @@ test("toolbar icon stays centered within the host button", async ({ page }) => {
     top: 5,
     bottom: 5,
   });
+});
+
+test("whole-page DB embed without name metadata exports in every format", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    const embedded = {
+      id: 20,
+      uuid: "embedded-page",
+      title: "Embedded workshop",
+    };
+    const oldPages = ls.Editor.getAllPages;
+    const oldPage = ls.Editor.getPage;
+    const oldQuery = ls.DB.datascriptQuery;
+    ls.Editor.getAllPages = async () => [...(await oldPages()), embedded];
+    ls.Editor.getBlock = async () => embedded;
+    ls.Editor.getPage = async (id: any) =>
+      id === embedded.uuid || id === 20 ? embedded : oldPage(id);
+    ls.Editor.getPageBlocksTree = async (id: any) =>
+      id === embedded.uuid
+        ? [{ uuid: "inside", title: "Whole page content", children: [] }]
+        : [{ id: 10, uuid: "page-alias", title: "", children: [] }];
+    ls.DB.datascriptQuery = async (query: string) =>
+      query.includes(":find ?b ?target") ? [[10, 20]] : oldQuery(query);
+  });
+  await page.locator("#preview").click();
+  await expect(
+    page.frameLocator("#previewFrame").getByText("Whole page content"),
+  ).toHaveCount(1);
+  for (const format of ["docx", "pdf", "html", "markdown", "json"]) {
+    await page.locator("#format").selectOption(format);
+    const extension = format === "markdown" ? "md" : format;
+    const download = page.waitForEvent("download", {
+      predicate: (d) => d.suggestedFilename().endsWith(`.${extension}`),
+    });
+    await page.locator("#export").click();
+    const file = await download;
+    await expect(page.locator("#status")).toHaveText("Export created.");
+    if (["html", "markdown", "json"].includes(format))
+      expect(await readFile((await file.path())!, "utf8")).toContain(
+        "Whole page content",
+      );
+  }
+});
+
+test("explicit span colors, alpha colors and CSS variables survive preview and export", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    ls.UI.resolveThemeCssPropsVals = async () => ({
+      "--demo-accent": "#008000",
+      "--ls-primary-text-color": "rgb(180, 140, 100)",
+    });
+    ls.Editor.getPageBlocksTree = async () => [
+      {
+        uuid: "colors",
+        title:
+          '<span id="red" style="color:red">Red text</span> <span id="alpha" style="color:rgba(255,0,0,.5)">Alpha text</span> <span id="theme" style="color:rgb(180,140,100)">Explicit theme text</span> <span id="variable" style="color:var(--demo-accent)">Variable text</span> <mark>Marked text</mark>',
+        children: [],
+      },
+    ];
+  });
+  await page.locator("#preview").click();
+  await expect(page.frameLocator("#previewFrame").locator("#red")).toHaveCSS(
+    "color",
+    "rgb(191, 0, 0)",
+  );
+  await expect(page.frameLocator("#previewFrame").locator("#theme")).toHaveCSS(
+    "color",
+    "rgb(135, 105, 75)",
+  );
+  await expect(
+    page.frameLocator("#previewFrame").locator("#variable"),
+  ).toHaveCSS("color", "rgb(0, 96, 0)");
+  await expect(
+    page.frameLocator("#previewFrame").locator("#alpha"),
+  ).not.toHaveCSS("color", "rgb(0, 0, 0)");
+  for (const format of ["docx", "pdf", "html"]) {
+    await page.locator("#format").selectOption(format);
+    const download = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await download;
+    await mkdir("qa-results/colors", { recursive: true });
+    await file.saveAs(`qa-results/colors/Colors.${format}`);
+    await expect(page.locator("#status")).toHaveText("Export created.");
+  }
 });
 
 test("rich synthetic exports are readable and safely packaged in all five formats", async ({

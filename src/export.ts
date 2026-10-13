@@ -29,6 +29,11 @@ import {
   validateDocx,
 } from "./export-safety";
 import { imageSize } from "image-size";
+import {
+  preparePdfAnchors,
+  normalizePdfAnchors,
+  validatePdf,
+} from "./pdf-safety";
 pdfMake.addVirtualFileSystem(fonts);
 export type Format = "docx" | "pdf" | "html" | "markdown" | "json";
 export function download(blob: Blob, name: string) {
@@ -554,6 +559,7 @@ export async function exportFile(
     await validateDocx(blob);
     save(blob, `${name}.docx`);
   } else {
+    preparePdfAnchors(content);
     for (const table of content.querySelectorAll<HTMLElement>("table")) {
       const count = table.querySelector("tr")?.children.length || 1;
       table.dataset.pdfmake = JSON.stringify({
@@ -611,7 +617,10 @@ export async function exportFile(
                     },
                   ],
                 },
-                { text: element.textContent.replace(/^\u2192\s*/, "") },
+                {
+                  text: element.textContent.replace(/^\u2192\s*/, ""),
+                  ...(element.id ? { id: element.id } : {}),
+                },
               ],
               margin: [0, 0, 0, 0],
             };
@@ -632,7 +641,6 @@ export async function exportFile(
             el.classList.contains("block-title") ||
               (bullet && el.tagName === "FIGURE"),
           );
-          if (el.id && nested.length) nested[0].id = el.id;
           result.push(...nested);
           continue;
         }
@@ -647,6 +655,7 @@ export async function exportFile(
             ? `<ul><li>${el.outerHTML}</li></ul>`
             : el.outerHTML;
         const stack = convert(html);
+        stack.forEach((node: any) => normalizePdfAnchors(node));
         const applyTableLayout = (node: any) => {
           if (!node || typeof node !== "object") return;
           if (node.table)
@@ -681,18 +690,21 @@ export async function exportFile(
             title ? 30 : table ? 10 : caption ? 6 : 4,
           ],
           ...(caption ? { fontSize: 9, color: "#555" } : {}),
-          ...(el.id ? { id: el.id } : {}),
         });
       }
       return result;
     }
     const definition = {
+      version: "1.4",
+      info: { title: data.title, creator: "Complete Export" },
       pageSize: options.paper,
       pageMargins: [left * 72, top * 72, right * 72, bottom * 72],
       defaultStyle: { fontSize: 11, lineHeight: 1.28, color: "#000000" },
       content: pdfContent(content),
       styles: { "html-h1": { fontSize: 22 }, "html-h2": { fontSize: 16 } },
     };
-    save(await pdfMake.createPdf(definition).getBlob(), `${name}.pdf`);
+    const blob = await pdfMake.createPdf(definition).getBlob();
+    await validatePdf(blob);
+    save(blob, `${name}.pdf`);
   }
 }

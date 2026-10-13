@@ -58,7 +58,7 @@ async function open(scope = "page", selected: typeof context = {}) {
   app.innerHTML = `<div class="panel"><header><h1>Complete Export</h1><button id="close" class="icon" title="Close"><i data-lucide="x"></i></button></header>
   <form id="form"><div class="fields"><label>Source<select id="scope"><option value="block">Block</option><option value="branch">Branch</option><option value="page">Current page</option><option value="named">Named page</option><option value="graph">Entire graph</option></select></label><label>Format<select id="format"><option value="docx">Word (.docx)</option><option value="pdf">PDF (.pdf)</option><option value="html">Interactive HTML (.html)</option><option value="markdown">Markdown (.md)</option><option value="json">Structured JSON (.json)</option></select></label></div>
   <label id="targetLabel">Page name<input id="target" value="${escape(selected.page ?? "")}" autocomplete="off"></label>
-  <fieldset><legend>Content</legend><label class="check"><input id="refs" type="checkbox" ${options.expandRefs ? "checked" : ""}>Include referenced block branches</label><label class="check"><input id="pages" type="checkbox" ${options.expandPages ? "checked" : ""}>Include linked pages</label><label class="check"><input id="props" type="checkbox" ${options.properties ? "checked" : ""}>Include properties</label></fieldset>
+  <fieldset><legend>Content</legend><label class="check"><input id="refs" type="checkbox" ${options.expandRefs ? "checked" : ""}>Include referenced block branches</label><label class="check"><input id="props" type="checkbox" ${options.properties ? "checked" : ""}>Include properties</label></fieldset>
   <fieldset><legend>Document</legend><div class="fields"><label>Paper<select id="paper"><option value="LETTER">US Letter</option><option value="A4">A4</option></select></label><label>Accent color<input id="accent" type="color" value="${options.accent}"></label></div><div class="margins">${["Left", "Top", "Right", "Bottom"].map((name, i) => `<label>${name} (in)<input id="margin${i}" type="number" min="0" max="2" step="0.05" value="${options.margins[i]}"></label>`).join("")}</div><label>Darken accent colors <output id="percent">${options.darken}%</output><input id="darken" type="range" min="0" max="100" value="${options.darken}"></label></fieldset>
   <footer><button type="button" id="preview"><i data-lucide="eye"></i>Preview</button><button type="submit" id="export"><i data-lucide="download"></i>Export</button></footer></form><p id="status" role="status"></p><ul id="warnings"></ul><iframe id="previewFrame" title="Export preview" sandbox="allow-same-origin" hidden></iframe></div>`;
   createIcons({ icons: { X, Eye, Download } });
@@ -98,7 +98,7 @@ function readOptions(): Options {
   return {
     ...options,
     expandRefs: checked("refs"),
-    expandPages: checked("pages"),
+    expandPages: false,
     properties: checked("props"),
     margins: [0, 1, 2, 3].map((i) => Number(value("margin" + i))),
     darken: Number(value("darken")),
@@ -114,6 +114,12 @@ async function collect(): Promise<DocumentData> {
   if (!(await logseq.App.checkCurrentIsDbGraph()))
     throw new Error("Open a Logseq DB graph to use Complete Export.");
   const graph = await logseq.App.getCurrentGraph();
+  const pages = await logseq.Editor.getAllPages();
+  const pageIds = new Set(
+    (pages ?? []).flatMap((p) =>
+      [p.uuid, p.id].filter((id) => id != null).map(String),
+    ),
+  );
   const queries = new Queries(logseq, engine);
   await queries.load();
   const links = new Map<number, number>();
@@ -133,6 +139,10 @@ async function collect(): Promise<DocumentData> {
       getPageBlocksTree: (id) => logseq.Editor.getPageBlocksTree(id),
       getBlockProperties: (id) => logseq.Editor.getBlockProperties(id),
       getPageProperties: (id) => logseq.Editor.getPageProperties(id),
+      isPage: (entity) =>
+        [entity.uuid, entity.id].some(
+          (id) => id != null && pageIds.has(String(id)),
+        ),
       getLinkedTarget: async (id) => links.get(Number(id)),
       getLinkedTitle: async (id) => linkedTitles.get(Number(id)),
       getAssetWidth: (uuid) => {
@@ -155,7 +165,6 @@ async function collect(): Promise<DocumentData> {
     nodes: DocumentData["nodes"] = [];
   if (source === "graph") {
     title = graph?.name ?? "Graph";
-    const pages = await logseq.Editor.getAllPages();
     if (!pages) throw new Error("Logseq did not return the graph pages.");
     const visible = pages
       .filter((p) => !["property", "hidden"].includes(p.type))
@@ -221,6 +230,26 @@ async function run(preview: boolean) {
     previousPreview.hidden = true;
     previousPreview.srcdoc = "";
     data = await collect();
+    const variables = new Set<string>();
+    function collectColors(nodes: DocumentData["nodes"]) {
+      for (const node of nodes) {
+        const parsed = new DOMParser().parseFromString(node.text, "text/html");
+        for (const element of parsed.querySelectorAll<HTMLElement>("[style]")) {
+          for (const match of element.style.color.matchAll(
+            /var\(\s*(--[\w-]+)/g,
+          ))
+            variables.add(match[1]);
+        }
+        collectColors(node.children);
+      }
+    }
+    collectColors(data.nodes);
+    options.colorVars =
+      (variables.size
+        ? await logseq.UI.resolveThemeCssPropsVals([...variables]).catch(
+            () => ({}),
+          )
+        : {}) ?? {};
     if (preview) {
       const frame = document.getElementById(
         "previewFrame",
@@ -276,8 +305,7 @@ logseq
   .ready(() => {
     const saved = logseq.settings?.exportOptions;
     if (saved && typeof saved === "object") options = { ...defaults, ...saved };
-    if (logseq.settings?.referenceDefaultsVersion !== 1)
-      options.expandPages = false;
+    options.expandPages = false;
     logseq.setMainUIInlineStyle({
       position: "fixed",
       top: "4vh",
