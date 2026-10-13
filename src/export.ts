@@ -708,17 +708,25 @@ export async function exportFile(
           }
         };
         stack.forEach(applyTableLayout);
-        result.push({
-          ...(image && bullet
+        const leaf =
+          image && bullet
             ? {
                 columns: [
                   { width: 10, text: "\u2022", color: "#777" },
                   { width: "*", stack },
                 ],
               }
-            : { stack }),
+            : { stack };
+        const inset = indent + (caption ? 10 : 0);
+        // Fixed column contexts retain their width across table/list page breaks.
+        // Lateral stack margins can otherwise corrupt PDFMake's continuation width.
+        result.push({
+          columns: [
+            ...(inset ? [{ width: inset, text: "" }] : []),
+            { width: usableWidth - inset, ...leaf },
+          ],
           margin: [
-            indent + (caption ? 10 : 0),
+            0,
             table ? 6 : 0,
             0,
             title ? 30 : table ? 10 : caption ? 6 : 4,

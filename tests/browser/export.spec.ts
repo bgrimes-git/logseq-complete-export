@@ -788,6 +788,89 @@ test("header words fit narrow columns without wasting short-column space", async
   }
 });
 
+for (const paper of ["LETTER", "A4"] as const) {
+  test(`multipage indented PDF tables and paragraphs stay inside the right margin (${paper})`, async ({
+    page,
+  }) => {
+    await page.evaluate(() => {
+      const ls = (window as any).logseq;
+      const prose =
+        "Review the next steps with the group and record the outcome. ";
+      const table =
+        "| Record # | Task | Status | Details |\n" +
+        Array.from(
+          { length: 52 },
+          (_, i) => `| ${i + 1} | Review item | Ready | ${prose.repeat(5)} |`,
+        ).join("\n");
+      let nested: any = {
+        id: 80,
+        uuid: "pdf-fit-section",
+        title: "Collected details",
+        children: [
+          { uuid: "pdf-first-table", title: table, children: [] },
+          { uuid: "pdf-long-text", title: prose.repeat(180), children: [] },
+          { uuid: "pdf-last-table", title: table, children: [] },
+          {
+            uuid: "pdf-ending",
+            title: prose.repeat(100) + "End of collection.",
+            children: [],
+          },
+        ],
+      };
+      for (let i = 6; i >= 1; i--)
+        nested = {
+          id: 60 + i,
+          uuid: `pdf-layer-${i}`,
+          title: `Tier ${i}`,
+          children: [nested],
+        };
+      ls.Editor.getBlock = async () => nested;
+      ls.Editor.getPageBlocksTree = async () => [
+        { id: 50, uuid: "pdf-fit-wrapper", title: "", children: [] },
+      ];
+      const oldQuery = ls.DB.datascriptQuery;
+      ls.DB.datascriptQuery = async (q: string) =>
+        q.includes(":find ?b ?target") ? [[50, 60]] : oldQuery(q);
+    });
+    await page.locator("#paper").selectOption(paper);
+    if (paper === "A4") {
+      await page.locator("#margin0").fill("0.6");
+      await page.locator("#margin2").fill("1.1");
+    }
+    await page.locator("#format").selectOption("pdf");
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await mkdir("qa-results/pdf-fit", { recursive: true });
+    await file.saveAs(
+      `qa-results/pdf-fit/Multipage${paper === "A4" ? "-A4" : ""}.pdf`,
+    );
+    const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const loading = getDocument({
+      data: new Uint8Array(await readFile((await file.path())!)),
+    });
+    const pdf = await loading.promise;
+    expect(pdf.numPages).toBeGreaterThan(3);
+    const overflow: string[] = [];
+    const allText: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const sheet = await pdf.getPage(i);
+      const right =
+        sheet.getViewport({ scale: 1 }).width -
+        (paper === "A4" ? 1.1 : 0.35) * 72;
+      const text = await sheet.getTextContent();
+      for (const item of text.items as any[]) {
+        if (item.str) allText.push(item.str);
+        if (item.str?.trim() && item.transform[4] + item.width > right + 1)
+          overflow.push(`Page ${i}: right=${item.transform[4] + item.width}`);
+      }
+    }
+    await loading.destroy();
+    expect(allText.join(" ")).toContain("End of collection.");
+    expect(overflow).toEqual([]);
+  });
+}
+
 test("rich synthetic exports are readable and safely packaged in all five formats", async ({
   page,
 }) => {
