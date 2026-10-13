@@ -22,7 +22,7 @@ import pdfMake from "pdfmake/build/pdfmake";
 import fonts from "pdfmake/build/vfs_fonts";
 import htmlToPdfmake from "html-to-pdfmake";
 import { body, htmlDocument, markdown } from "./render";
-import { outlineStep, tableWidths } from "./layout";
+import { outlineStep, tableWidths, tableAvailableWidth } from "./layout";
 import { cleanText, type DocumentData, type Options } from "./model";
 import {
   prepareExport,
@@ -219,7 +219,7 @@ function docxContent(
     if (tag === "TABLE") {
       const tableIndent =
         indent + (root.classList.contains("block-title") || bullet ? 180 : 0);
-      const widths = tableWidths(el);
+      const widths = tableWidths(el, (available - tableIndent) / 20);
       output.push(
         new Table({
           width: { size: available - tableIndent, type: WidthType.DXA },
@@ -566,9 +566,15 @@ export async function exportFile(
     save(blob, `${name}.docx`);
   } else {
     preparePdfAnchors(content);
+    const usableWidth =
+      (options.paper === "A4" ? 595.3 : 612) - (left + right) * 72;
+    const step = outlineStep(content, usableWidth);
     for (const table of content.querySelectorAll<HTMLElement>("table")) {
       table.dataset.pdfmake = JSON.stringify({
-        widths: tableWidths(table).map((width) => `${width}%`),
+        widths: tableWidths(
+          table,
+          tableAvailableWidth(table, content, usableWidth, step),
+        ).map((width) => `${width}%`),
         margin: [0, 0, 0, 0],
       });
       for (const cell of table.querySelectorAll<HTMLElement>("td,th")) {
@@ -659,10 +665,6 @@ export async function exportFile(
         },
       });
     // Convert leaf blocks separately so inherited list margins cannot accumulate around tables.
-    const step = outlineStep(
-      content,
-      (options.paper === "A4" ? 595.3 : 612) - (left + right) * 72,
-    );
     function pdfContent(root: HTMLElement, indent = 0, bullet = false): any[] {
       const result: any[] = [];
       for (const el of Array.from(root.children) as HTMLElement[]) {

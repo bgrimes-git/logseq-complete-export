@@ -735,6 +735,59 @@ test("deep embedded outlines keep indenting and narrow columns share less width"
   }
 });
 
+test("header words fit narrow columns without wasting short-column space", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    (window as any).logseq.Editor.getPageBlocksTree = async () => [
+      {
+        uuid: "header-table",
+        title:
+          "| Record # | Task description | Policy alignment | Delivery<br>Readiness | Implementation notes |\n| 1 | Review a draft | Yes | Possible | " +
+          "Several steps need explanation. ".repeat(15) +
+          " |",
+        children: [],
+      },
+    ];
+  });
+  await page.locator("#preview").click();
+  const frame = page.frameLocator("#previewFrame");
+  const metrics = await frame.locator("table").evaluate((table) => {
+    const cells = Array.from(table.querySelectorAll("th"));
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    ctx.font = getComputedStyle(cells[0]).font;
+    return {
+      first: cells[0].getBoundingClientRect().width,
+      record: ctx.measureText("Record").width,
+      delivery: cells[3].getBoundingClientRect().width,
+      notes: cells[4].getBoundingClientRect().width,
+    };
+  });
+  expect(metrics.first).toBeGreaterThan(metrics.record + 12);
+  expect(metrics.delivery).toBeLessThan(metrics.notes);
+  await mkdir("qa-results/header-widths", { recursive: true });
+  for (const format of ["docx", "pdf", "html"]) {
+    await page.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await file.saveAs(`qa-results/header-widths/Headers.${format}`);
+    if (format === "pdf") {
+      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const loading = getDocument({
+        data: new Uint8Array(await readFile((await file.path())!)),
+      });
+      const pdf = await loading.promise;
+      const text = await (await pdf.getPage(1)).getTextContent();
+      expect(
+        text.items.some((item: any) => /\bRecord\b/.test(item.str || "")),
+      ).toBeTruthy();
+      await loading.destroy();
+    }
+    await expect(page.locator("#status")).toHaveText("Export created.");
+  }
+});
+
 test("rich synthetic exports are readable and safely packaged in all five formats", async ({
   page,
 }) => {

@@ -29,3 +29,20 @@ test("deep outlines use a smaller step without flattening levels", () => {
     15,
   );
 });
+test("header words reserve width while explicit header breaks keep columns compact", () => {
+  const doc = new JSDOM(
+    "<table><tr><th>Record #</th><th>Delivery<br>Readiness</th><th>Details</th></tr><tr><td>1</td><td>Possible</td><td>" +
+      "Several steps need explanation. ".repeat(20) +
+      "</td></tr></table>",
+  ).window.document;
+  const widths = tableWidths(doc.querySelector("table")!, 500);
+  assert.ok(
+    widths[0] * 5 >= 51,
+    "Record must fit as a whole word plus padding",
+  );
+  assert.ok(
+    widths[1] < 25,
+    "A two-line header should not consume paragraph-column space",
+  );
+  assert.ok(widths[2] > widths[1] * 2);
+});
