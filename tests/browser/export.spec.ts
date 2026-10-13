@@ -73,7 +73,11 @@ test.beforeEach(async ({ page }) => {
     const blocks = [section, query, ...section.children];
     w.logseq = {
       baseInfo: { id: "complete-export" },
-      resolveResourceFullUrl: () => "/export-colors.js",
+      resolveResourceFullUrl: (path: string) => {
+        if (path !== "dist/export-colors.js")
+          throw new Error("Helper must resolve from the plugin package root");
+        return "/export-colors.js";
+      },
       _execCallableAPIAsync: async () => {
         if (window.parent !== window) return;
         const frame = document.createElement("iframe");
@@ -220,7 +224,7 @@ test("whole-page DB embed omitted by the SDK tree exports in every format", asyn
     ls.DB.datascriptQuery = async (query: string, pageId?: number) =>
       query.includes(":logseq.class/Page")
         ? [[20, embedded.uuid]]
-        : query.includes("(pull ?b") && query.includes(":block/parent")
+        : query.includes("(pull ?b") && query.includes(":in $ ?page")
           ? pageId === 20
             ? [
                 [
@@ -272,11 +276,11 @@ test("theme class colors work across an inaccessible host iframe boundary", asyn
   await page.route("**/color-host", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<style>.grey{color:rgb(128,128,128)}</style><script src="/export-colors.js"></script><iframe id="complete-export_iframe" src="${childUrl.href}" style="width:800px;height:900px"></iframe>`,
+      body: `<style>.grey{color:rgb(128,128,128)}</style><script src="/export-colors.js" data-ref="marketplace-export"></script><iframe id="marketplace-export_iframe" src="${childUrl.href}" style="width:800px;height:900px"></iframe>`,
     }),
   );
   await page.goto(hostUrl.href);
-  const frame = page.frameLocator("#complete-export_iframe");
+  const frame = page.frameLocator("#marketplace-export_iframe");
   await expect(frame.locator("#app")).toBeAttached();
   const child = page.frames().find((f) => f.url() === childUrl.href)!;
   await child.waitForFunction(() => !!(window as any).exportModel);
@@ -321,6 +325,132 @@ test("theme class colors work across an inaccessible host iframe boundary", asyn
       expect(await readFile((await file.path())!, "utf8")).toContain(
         "rgb(96, 96, 96)",
       );
+  }
+});
+
+test("large embedded page between two blocks retains both tables and the next embed", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const ls = (window as any).logseq;
+    const root = { id: 1, uuid: "root", title: "Assembly", name: "assembly" };
+    const heavy = {
+      id: 20,
+      uuid: "large-page",
+      title: "Large embedded page",
+      type: "page",
+    };
+    const other = {
+      id: 30,
+      uuid: "other-page",
+      title: "Other embedded page",
+      type: "page",
+    };
+    const table = (n: number) =>
+      "| Item | Value |\n| --- | --- |\n" +
+      Array.from(
+        { length: n },
+        (_, i) => `| Row ${i + 1} | Value ${i + 1} |`,
+      ).join("\n");
+    const records = [
+      {
+        id: 2,
+        uuid: "before",
+        title: "Before the embeds",
+        parent: { id: 1 },
+        order: "a",
+      },
+      { id: 10, uuid: "heavy-alias", title: "", parent: { id: 1 }, order: "b" },
+      { id: 11, uuid: "other-alias", title: "", parent: { id: 1 }, order: "c" },
+      {
+        id: 12,
+        uuid: "after",
+        title: "After the embeds",
+        parent: { id: 1 },
+        order: "d",
+      },
+      {
+        id: 21,
+        uuid: "branch-a",
+        title: "First branch \u{1F4CC}",
+        parent: { id: 20 },
+      },
+      {
+        id: 22,
+        uuid: "branch-b",
+        title: "Second branch \u{1F4CC}",
+        parent: { id: 20 },
+      },
+      { id: 23, uuid: "large-table", title: table(118), parent: { id: 21 } },
+      { id: 24, uuid: "small-table", title: table(5), parent: { id: 22 } },
+      {
+        id: 31,
+        uuid: "other-content",
+        title: "Other page content",
+        parent: { id: 30 },
+      },
+    ];
+    ls.Editor.getCurrentPage = async () => root;
+    ls.Editor.getAllPages = async () => [root];
+    ls.Editor.getPage = async (id: any) =>
+      [root, heavy, other].find((p) => p.id === id || p.uuid === id);
+    ls.Editor.getBlock = async (id: any) =>
+      [heavy, other].find((p) => p.id === id || p.uuid === id);
+    ls.Editor.getPageBlocksTree = async () => [];
+    ls.DB.datascriptQuery = async (q: string, input?: any) => {
+      if (q.includes(":logseq.class/Page"))
+        return [
+          [20, heavy.uuid],
+          [30, other.uuid],
+        ];
+      if (q.includes(":find ?b ?target"))
+        return [
+          [10, 20],
+          [11, 30],
+        ];
+      if (q.includes(":in $ [?parent")) {
+        const parents = String(input).slice(1, -1).split(" ").map(Number);
+        return records
+          .filter((r) => parents.includes(r.parent.id))
+          .map((r) => [r]);
+      }
+      if (q.includes(":in $ ?page")) {
+        const parents = input === 20 ? [20, 21, 22] : [input];
+        return records
+          .filter((r) => parents.includes(r.parent.id))
+          .map((r) => [r]);
+      }
+      return [];
+    };
+  });
+  await page.locator("#preview").click();
+  await expect(page.locator("#status")).toHaveText("Preview ready.");
+  await expect(
+    page.frameLocator("#previewFrame").locator("tbody tr"),
+  ).toHaveCount(123);
+  await expect(page.locator("#integrationDetails")).toContainText(
+    "direct children: 2",
+  );
+  await expect(page.locator("#integrationDetails")).not.toContainText(
+    "Large embedded page",
+  );
+  await expect(page.locator("#integrationDetails")).not.toContainText(
+    "large-page",
+  );
+  await expect(
+    page.frameLocator("#previewFrame").getByText("Other page content"),
+  ).toHaveCount(1);
+  await expect(
+    page.frameLocator("#previewFrame").getByText("After the embeds"),
+  ).toHaveCount(1);
+  for (const format of ["docx", "pdf", "html", "markdown", "json"]) {
+    await page.locator("#format").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await page.locator("#export").click();
+    const file = await downloaded;
+    await expect(page.locator("#status")).toHaveText("Export created.");
+    if (["html", "markdown", "json"].includes(format))
+      expect(await readFile((await file.path())!, "utf8")).toContain("Row 118");
   }
 });
 

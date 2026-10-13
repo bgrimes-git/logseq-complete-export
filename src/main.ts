@@ -20,11 +20,13 @@ import "./style.css";
 import { Queries } from "./queries";
 import { engine } from "./query-runtime";
 import { readClassColors } from "./host-colors";
-import { readDbPageTree } from "./db-tree";
+import { readDbPageTree, readDbBlock } from "./db-tree";
+import packageInfo from "../package.json";
 
 const app = document.getElementById("app")!;
 let context: { block?: string; page?: string } = {};
 let busy = false;
+let integrationDetails: string[] = [];
 let options: Options = { ...defaults, margins: [...defaults.margins] };
 async function theme() {
   const colors = await logseq.UI.resolveThemeCssPropsVals([
@@ -62,7 +64,7 @@ async function open(scope = "page", selected: typeof context = {}) {
   <label id="targetLabel">Page name<input id="target" value="${escape(selected.page ?? "")}" autocomplete="off"></label>
   <fieldset><legend>Content</legend><label class="check"><input id="refs" type="checkbox" ${options.expandRefs ? "checked" : ""}>Include referenced block branches</label><label class="check"><input id="props" type="checkbox" ${options.properties ? "checked" : ""}>Include properties</label></fieldset>
   <fieldset><legend>Document</legend><div class="fields"><label>Paper<select id="paper"><option value="LETTER">US Letter</option><option value="A4">A4</option></select></label><label>Accent color<input id="accent" type="color" value="${options.accent}"></label></div><div class="margins">${["Left", "Top", "Right", "Bottom"].map((name, i) => `<label>${name} (in)<input id="margin${i}" type="number" min="0" max="2" step="0.05" value="${options.margins[i]}"></label>`).join("")}</div><label>Darken accent colors <output id="percent">${options.darken}%</output><input id="darken" type="range" min="0" max="100" value="${options.darken}"></label></fieldset>
-  <footer><button type="button" id="preview"><i data-lucide="eye"></i>Preview</button><button type="submit" id="export"><i data-lucide="download"></i>Export</button></footer></form><p id="status" role="status"></p><ul id="warnings"></ul><iframe id="previewFrame" title="Export preview" sandbox="allow-same-origin" hidden></iframe></div>`;
+  <footer><button type="button" id="preview"><i data-lucide="eye"></i>Preview</button><button type="submit" id="export"><i data-lucide="download"></i>Export</button></footer></form><p id="status" role="status"></p><ul id="warnings"></ul><details id="integration" hidden><summary>Integration details</summary><pre id="integrationDetails"></pre></details><iframe id="previewFrame" title="Export preview" sandbox="allow-same-origin" hidden></iframe></div>`;
   createIcons({ icons: { X, Eye, Download } });
   const source = document.getElementById("scope") as HTMLSelectElement;
   source.value = scope;
@@ -109,6 +111,7 @@ function readOptions(): Options {
   };
 }
 async function collect(): Promise<DocumentData> {
+  integrationDetails = [`Plugin: ${packageInfo.version}`];
   const source = (document.getElementById("scope") as HTMLSelectElement).value;
   const target = (
     document.getElementById("target") as HTMLInputElement
@@ -123,7 +126,7 @@ async function collect(): Promise<DocumentData> {
     ),
   );
   const dbPages = await logseq.DB.datascriptQuery(
-    "[:find ?page ?uuid :where [?page :block/tags ?tag] (or [?tag :db/ident :logseq.class/Page] [?tag :db/ident :logseq.class/Journal]) [?page :block/uuid ?uuid]]",
+    "[:find ?page ?uuid :where [?page :block/tags ?tag] (or [?tag :db/ident :logseq.class/Page] [?tag :db/ident :logseq.class/Journal] [?tag :db/ident :logseq.class/Tag] [?tag :db/ident :logseq.class/Property]) [?page :block/uuid ?uuid]]",
   );
   for (const [id, uuid] of dbPages ?? []) {
     if (typeof id === "number") pageIds.add(String(id));
@@ -143,7 +146,7 @@ async function collect(): Promise<DocumentData> {
   for (const [id, title] of titleRows ?? []) linkedTitles.set(id, title);
   const resolver = new Resolver(
     {
-      getBlock: (...args) => logseq.Editor.getBlock(...args),
+      getBlock: (id, opts) => readDbBlock(logseq, id, opts),
       getPage: (id) => logseq.Editor.getPage(id),
       getPageBlocksTree: (id) => readDbPageTree(logseq, id),
       getBlockProperties: (id) => logseq.Editor.getBlockProperties(id),
@@ -151,6 +154,10 @@ async function collect(): Promise<DocumentData> {
       isPage: (entity) =>
         [entity.uuid, entity.id].some(
           (id) => id != null && pageIds.has(String(id)),
+        ),
+      reportEmbed: (kind, children) =>
+        integrationDetails.push(
+          `Embed ${integrationDetails.filter((line) => line.startsWith("Embed ")).length + 1}: ${kind}; direct children: ${children}`,
         ),
       getLinkedTarget: async (id) => links.get(Number(id)),
       getLinkedTitle: async (id) => linkedTitles.get(Number(id)),
@@ -259,12 +266,23 @@ async function run(preview: boolean) {
     options.classColors = {};
     try {
       options.classColors = await readClassColors([...classes]);
-    } catch {
+      integrationDetails.push(
+        `Class colors: ${Object.keys(options.classColors).length} resolved / ${classes.size} requested`,
+      );
+    } catch (error) {
+      const code =
+        error instanceof Error && /^COLOR_[A-Z_]+$/.test(error.message)
+          ? error.message
+          : "COLOR_HELPER_UNAVAILABLE";
+      integrationDetails.push(`Class colors: ${code}`);
       if (classes.size)
         data.warnings.push(
-          "Theme-defined span colors could not be read from Logseq.",
+          `Theme-defined span colors could not be read from Logseq (${code}).`,
         );
     }
+    document.getElementById("integration")!.hidden = false;
+    document.getElementById("integrationDetails")!.textContent =
+      integrationDetails.join("\n");
     options.colorVars =
       (variables.size
         ? await logseq.UI.resolveThemeCssPropsVals([...variables]).catch(

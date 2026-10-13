@@ -55,3 +55,38 @@ export async function readDbPageTree(
     buildDbTree(rows ?? [], page.id) ?? ls.Editor.getPageBlocksTree(identity)
   );
 }
+
+export async function readDbBlock(
+  ls: typeof logseq,
+  id: string | number,
+  opts?: object,
+): Promise<any> {
+  const block = await ls.Editor.getBlock(id, opts);
+  if (!block || typeof block.id !== "number") return block;
+  const records: any[] = [];
+  const seen = new Set<number>([block.id]);
+  let pending = [block.id];
+  for (let depth = 0; pending.length; depth++) {
+    if (depth > 80)
+      throw new Error("The DB branch exceeds the 80-level export limit.");
+    const rows = await ls.DB.datascriptQuery(
+      "[:find (pull ?b [:db/id :block/uuid :block/title :block/order :block/collapsed? {:block/parent [:db/id]} {:block/link [:db/id :block/uuid]}]) :in $ [?parent ...] :where [?b :block/parent ?parent]]",
+      `[${pending.join(" ")}]`,
+    );
+    pending = [];
+    for (const row of rows ?? []) {
+      const child = Array.isArray(row) ? row[0] : row;
+      if (typeof child?.id !== "number" || typeof child.uuid !== "string")
+        continue;
+      if (seen.has(child.id))
+        throw new Error("The DB branch contains a parent cycle.");
+      seen.add(child.id);
+      records.push(child);
+      pending.push(child.id);
+    }
+    if (records.length > 50000)
+      throw new Error("The DB branch exceeds the 50,000-block export limit.");
+  }
+  const children = buildDbTree(records, block.id);
+  return children ? { ...block, children } : block;
+}

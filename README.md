@@ -34,6 +34,8 @@ Settings persist across sessions. Default document margins are 0.35 inches on ea
 
 ## Format Behavior
 
+The export panel's **Integration details** show plugin version, embed child counts, and color-helper status without note text, page names, UUIDs or class names. These details stay in the panel and are not added to exported documents.
+
 | Format | Preserved behavior |
 | --- | --- |
 | DOCX | Editable text, basic Markdown formatting, tables, images, links, bookmarks and Word outline levels; no live Logseq queries |

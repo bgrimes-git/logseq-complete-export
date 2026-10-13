@@ -1,10 +1,12 @@
 (() => {
   const key = "complete-export:colors";
-  if (window.__completeExportColors) return;
-  window.__completeExportColors = true;
+  const pluginId = document.currentScript?.dataset.ref || "complete-export";
+  window.__completeExportColorHelpers ||= new Set();
+  if (window.__completeExportColorHelpers.has(pluginId)) return;
+  window.__completeExportColorHelpers.add(pluginId);
   window.addEventListener("message", (event) => {
     const request = event.data;
-    const frame = document.getElementById("complete-export_iframe");
+    const frame = document.getElementById(`${pluginId}_iframe`);
     if (
       !frame ||
       event.source !== frame.contentWindow ||

@@ -33,6 +33,11 @@ h1 {
   font-size: 20px;
   margin: 0;
 }
+#integrationDetails {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
 label {
   display: block;
   margin-bottom: 10px;

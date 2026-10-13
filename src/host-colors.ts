@@ -6,16 +6,18 @@ export async function readClassColors(
   const sdk = logseq as typeof logseq & {
     _execCallableAPIAsync(method: string, ...args: unknown[]): Promise<unknown>;
   };
+  if (typeof sdk._execCallableAPIAsync !== "function")
+    throw new Error("COLOR_TRANSPORT_UNAVAILABLE");
   // Route the bundled host helper over the SDK transport, not cross-origin DOM access.
   loading ??= sdk
     ._execCallableAPIAsync(
       "exper_load_scripts",
       logseq.baseInfo.id,
-      logseq.resolveResourceFullUrl("./export-colors.js"),
+      logseq.resolveResourceFullUrl("dist/export-colors.js"),
     )
-    .catch((error) => {
+    .catch(() => {
       loading = undefined;
-      throw error;
+      throw new Error("COLOR_HELPER_LOAD_FAILED");
     });
   await loading;
   return new Promise((resolve, reject) => {
@@ -23,7 +25,8 @@ export async function readClassColors(
     const host = window.parent;
     const timer = setTimeout(() => {
       window.removeEventListener("message", receive);
-      reject(new Error("Logseq color helper did not respond."));
+      loading = undefined;
+      reject(new Error("COLOR_HELPER_TIMEOUT"));
     }, 5000);
     function receive(event: MessageEvent) {
       if (

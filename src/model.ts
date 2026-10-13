@@ -38,6 +38,7 @@ export interface Api {
   getLinkedTitle?(id: number | string): Promise<string | undefined>;
   getAssetWidth?(uuid: string): number | undefined;
   isPage?(entity: any): boolean;
+  reportEmbed?(kind: Node["kind"], children: number): void;
 }
 export interface QueryProvider {
   run(
@@ -240,6 +241,7 @@ export class Resolver {
       const node = this.isPage(target)
         ? await this.page(pageIdentity(target), next)
         : await this.block(target, next, children);
+      this.api.reportEmbed?.(node.kind, node.children.length);
       const sourcePage =
         !this.isPage(target) && target.page
           ? await this.api.getPage(pageIdentity(target.page))
@@ -373,11 +375,12 @@ export class Resolver {
         ) {
           ordered.push(result.slice(segmentStart), nested.length);
           segmentStart = result.length;
-          nested.push(
-            isPage
-              ? await this.page(pageIdentity(entity), next)
-              : await this.block(entity, next),
-          );
+          const resolved = isPage
+            ? await this.page(pageIdentity(entity), next)
+            : await this.block(entity, next);
+          nested.push(resolved);
+          if (embedBlock || embedPage)
+            this.api.reportEmbed?.(resolved.kind, resolved.children.length);
         }
       }
       last = match.index! + match[0].length;
