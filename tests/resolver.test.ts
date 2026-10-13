@@ -316,6 +316,26 @@ test("whole-page DB embeds without a name field load the full page tree", async 
   assert.equal(node.embedded, true);
   assert.equal(node.children[0].text, "Whole page content");
 });
+test("explicit page embeds retain page semantics without SDK page metadata", async () => {
+  const page = { uuid: "page-target", title: "Workshop" };
+  const resolver = new Resolver(
+    {
+      getBlock: async () => null,
+      getPage: async () => page,
+      getPageBlocksTree: async () => [
+        { uuid: "inside", title: "Complete embedded content" },
+      ],
+    },
+    { ...defaults, expandPages: false, expandRefs: false },
+  );
+  const node = await resolver.block({
+    uuid: "source",
+    title: "{{embed [[Workshop]]}}",
+  });
+  assert.equal(node.children[0].kind, "page");
+  assert.equal(node.children[0].children[0].text, "Complete embedded content");
+});
+
 test("DB asset metadata becomes an image even when properties are disabled", async () => {
   const r = new Resolver(
     {

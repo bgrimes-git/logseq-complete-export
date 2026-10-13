@@ -120,6 +120,13 @@ async function collect(): Promise<DocumentData> {
       [p.uuid, p.id].filter((id) => id != null).map(String),
     ),
   );
+  const dbPages = await logseq.DB.datascriptQuery(
+    "[:find ?page ?uuid :where [?page :block/tags ?tag] (or [?tag :db/ident :logseq.class/Page] [?tag :db/ident :logseq.class/Journal]) [?page :block/uuid ?uuid]]",
+  );
+  for (const [id, uuid] of dbPages ?? []) {
+    if (typeof id === "number") pageIds.add(String(id));
+    if (typeof uuid === "string") pageIds.add(uuid);
+  }
   const queries = new Queries(logseq, engine);
   await queries.load();
   const links = new Map<number, number>();
@@ -231,9 +238,12 @@ async function run(preview: boolean) {
     previousPreview.srcdoc = "";
     data = await collect();
     const variables = new Set<string>();
+    const classes = new Set<string>();
     function collectColors(nodes: DocumentData["nodes"]) {
       for (const node of nodes) {
         const parsed = new DOMParser().parseFromString(node.text, "text/html");
+        for (const element of parsed.querySelectorAll("span[class]"))
+          classes.add(element.className.trim());
         for (const element of parsed.querySelectorAll<HTMLElement>("[style]")) {
           for (const match of element.style.color.matchAll(
             /var\(\s*(--[\w-]+)/g,
@@ -244,6 +254,39 @@ async function run(preview: boolean) {
       }
     }
     collectColors(data.nodes);
+    options.classColors = {};
+    try {
+      const host = parent.document;
+      const container = host.createElement("div");
+      container.style.cssText =
+        "position:fixed;visibility:hidden;pointer-events:none";
+      container.className = "block-content";
+      (host.querySelector(".ls-block .block-content") ?? host.body).append(
+        container,
+      );
+      try {
+        const baseline = host.createElement("span");
+        baseline.textContent = "Export color sample";
+        container.append(baseline);
+        const inherited = parent.getComputedStyle(baseline).color;
+        for (const className of classes) {
+          const sample = host.createElement("span");
+          sample.className = className;
+          sample.textContent = "Export color sample";
+          container.append(sample);
+          const color = parent.getComputedStyle(sample).color;
+          if (color !== inherited) options.classColors[className] = color;
+          sample.remove();
+        }
+      } finally {
+        container.remove();
+      }
+    } catch {
+      if (classes.size)
+        data.warnings.push(
+          "Theme-defined span colors could not be read from Logseq.",
+        );
+    }
     options.colorVars =
       (variables.size
         ? await logseq.UI.resolveThemeCssPropsVals([...variables]).catch(

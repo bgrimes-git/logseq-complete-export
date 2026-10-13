@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { readFile, mkdir } from "node:fs/promises";
+import { unzipSync, strFromU8 } from "fflate";
 test("synthetic workshop preview preserves the table and embed heading", async ({
   page,
 }) => {
@@ -193,10 +194,8 @@ test("whole-page DB embed without name metadata exports in every format", async 
       uuid: "embedded-page",
       title: "Embedded workshop",
     };
-    const oldPages = ls.Editor.getAllPages;
     const oldPage = ls.Editor.getPage;
     const oldQuery = ls.DB.datascriptQuery;
-    ls.Editor.getAllPages = async () => [...(await oldPages()), embedded];
     ls.Editor.getBlock = async () => embedded;
     ls.Editor.getPage = async (id: any) =>
       id === embedded.uuid || id === 20 ? embedded : oldPage(id);
@@ -205,7 +204,11 @@ test("whole-page DB embed without name metadata exports in every format", async 
         ? [{ uuid: "inside", title: "Whole page content", children: [] }]
         : [{ id: 10, uuid: "page-alias", title: "", children: [] }];
     ls.DB.datascriptQuery = async (query: string) =>
-      query.includes(":find ?b ?target") ? [[10, 20]] : oldQuery(query);
+      query.includes(":logseq.class/Page")
+        ? [[20, embedded.uuid]]
+        : query.includes(":find ?b ?target")
+          ? [[10, 20]]
+          : oldQuery(query);
   });
   await page.locator("#preview").click();
   await expect(
@@ -236,11 +239,14 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
       "--demo-accent": "#008000",
       "--ls-primary-text-color": "rgb(180, 140, 100)",
     });
+    const style = document.createElement("style");
+    style.textContent = ".grey { color: rgb(128, 128, 128); }";
+    document.head.append(style);
     ls.Editor.getPageBlocksTree = async () => [
       {
         uuid: "colors",
         title:
-          '<span id="red" style="color:red">Red text</span> <span id="alpha" style="color:rgba(255,0,0,.5)">Alpha text</span> <span id="theme" style="color:rgb(180,140,100)">Explicit theme text</span> <span id="variable" style="color:var(--demo-accent)">Variable text</span> <mark>Marked text</mark>',
+          '<span id="red" style="color:red">Red text</span> <span id="alpha" style="color:rgba(255,0,0,.5)">Alpha text</span> <span id="theme" style="color:rgb(180,140,100)">Explicit theme text</span> <span id="variable" style="color:var(--demo-accent)">Variable text</span> <span id="class-color" class="grey">Class-colored text</span> <mark>Marked text</mark>',
         children: [],
       },
     ];
@@ -250,6 +256,9 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
     "color",
     "rgb(191, 0, 0)",
   );
+  await expect(
+    page.frameLocator("#previewFrame").locator("#class-color"),
+  ).toHaveCSS("color", "rgb(96, 96, 96)");
   await expect(page.frameLocator("#previewFrame").locator("#theme")).toHaveCSS(
     "color",
     "rgb(135, 105, 75)",
@@ -267,6 +276,16 @@ test("explicit span colors, alpha colors and CSS variables survive preview and e
     const file = await download;
     await mkdir("qa-results/colors", { recursive: true });
     await file.saveAs(`qa-results/colors/Colors.${format}`);
+    if (format === "docx") {
+      const entries = unzipSync(await readFile((await file.path())!));
+      expect(strFromU8(entries["word/document.xml"])).toContain(
+        'w:val="606060"',
+      );
+    }
+    if (format === "html")
+      expect(await readFile((await file.path())!, "utf8")).toContain(
+        "rgb(96, 96, 96)",
+      );
     await expect(page.locator("#status")).toHaveText("Export created.");
   }
 });

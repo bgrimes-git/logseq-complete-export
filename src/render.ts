@@ -29,8 +29,8 @@ export function inline(text: string, options: Options): string {
   });
   const root = document.createElement("div");
   root.innerHTML = html;
-  for (const el of root.querySelectorAll<HTMLElement>("[style]")) {
-    const color = el.style.color;
+  for (const el of root.querySelectorAll<HTMLElement>("[style], span[class]")) {
+    const color = el.style.color || options.classColors?.[el.className.trim()];
     el.removeAttribute("style");
     // Explicit colors are intentional; inherited theme colors are not copied.
     if (color) {

@@ -25,6 +25,7 @@ export interface Options {
   accent: string;
   defaultColor?: string;
   colorVars?: Record<string, string>;
+  classColors?: Record<string, string>;
   paper: "LETTER" | "A4";
 }
 export interface Api {
@@ -345,10 +346,14 @@ export class Resolver {
         entity = isPage
           ? await this.api.getPage(target)
           : await this.fetch(target);
+        const resolvedAsPage =
+          !!embedPage &&
+          !!entity &&
+          !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(target);
         if (!entity && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(target))
           entity =
             (await this.fetch(target)) ?? (await this.api.getPage(target));
-        if (entity) isPage = this.isPage(entity);
+        if (entity) isPage = resolvedAsPage || this.isPage(entity);
       } catch (e) {
         this.warn(`Reference failed: ${target}: ${String(e)}`);
       }
